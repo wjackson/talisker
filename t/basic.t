@@ -21,10 +21,10 @@ test_redis {
     $talisker->write(
         tag    => 'BAC',
         points => [
-            { date  => '20100405', value => 1.1,  mtime => 1234567890},
-            { date  => '20100406', value => 1.2,  mtime => 1234567890},
-            { date  => '20100406', value => 1.21, mtime => 1234567892},
-            { date  => '20100407', value => 1.3,  mtime => 1234567890},
+            { stamp  => 20100405, value => 1.1,  mtime => 1234567890},
+            { stamp  => 20100406, value => 1.2,  mtime => 1234567890},
+            { stamp  => 20100406, value => 1.21, mtime => 1234567892},
+            { stamp  => 20100407, value => 1.3,  mtime => 1234567890},
         ],
         callback => sub { $write_cb->(@_) },
     );
@@ -57,9 +57,9 @@ test_redis {
         {
             tag => 'BAC',
             points => [
-                { date => 20100405, value => 1.1,  mtime => 1234567890 },
-                { date => 20100406, value => 1.21, mtime => 1234567892 },
-                { date => 20100407, value => 1.3,  mtime => 1234567890 },
+                { stamp => 20100405, value => 1.1,  mtime => 1234567890 },
+                { stamp => 20100406, value => 1.21, mtime => 1234567892 },
+                { stamp => 20100407, value => 1.3,  mtime => 1234567890 },
             ],
         },
         'read ts'
@@ -70,9 +70,9 @@ test_redis {
         {
             tag => 'BAC',
             points => [
-                { date => 20100405, value => 1.1, mtime => 1234567890 },
-                { date => 20100406, value => 1.2, mtime => 1234567890 },
-                { date => 20100407, value => 1.3, mtime => 1234567890 },
+                { stamp => 20100405, value => 1.1, mtime => 1234567890 },
+                { stamp => 20100406, value => 1.2, mtime => 1234567890 },
+                { stamp => 20100407, value => 1.3, mtime => 1234567890 },
             ],
         },
         'read ts with as_of'
