@@ -1,7 +1,6 @@
 use strict;
 use warnings;
 use Test::More;
-use AE;
 
 use t::Redis;
 use ok 'Talisker';
@@ -12,12 +11,6 @@ test_redis {
     
     isa_ok $talisker, 'Talisker';
     
-    my $cv = AE::cv;
-    my $read_value;
-    
-    my ($write_cb, $read_cb_a, $read_cb_b);
-    my ($ts_a, $ts_b);
-
     $talisker->write(
         tag    => 'BAC',
         points => [
@@ -26,34 +19,10 @@ test_redis {
             { stamp  => 20100406, value => 1.21, mtime => 1234567892},
             { stamp  => 20100407, value => 1.3,  mtime => 1234567890},
         ],
-        callback => sub { $write_cb->(@_) },
-    );
+    )->recv;
 
-    $write_cb = sub {
-        $talisker->read(
-            tag      => 'BAC',
-            callback => sub { $read_cb_a->(@_) },
-        );
-    };
-
-    $read_cb_a = sub {
-        ($ts_a) = @_;
-        $talisker->read(
-            tag      => 'BAC',
-            as_of    => 1234567891,
-            callback => sub { $read_cb_b->(@_) },
-        );
-    };
-
-    $read_cb_b = sub {
-        ($ts_b) = @_;
-        $cv->send;
-    };
-    
-    $cv->recv;
-    
     is_deeply
-        $ts_a,
+        $talisker->read(tag => 'BAC')->recv,
         {
             tag => 'BAC',
             points => [
@@ -66,7 +35,7 @@ test_redis {
         ;
 
     is_deeply
-        $ts_b,
+        $talisker->read(tag => 'BAC', as_of => 1234567891)->recv,
         {
             tag => 'BAC',
             points => [
@@ -75,7 +44,16 @@ test_redis {
                 { stamp => 20100407, value => 1.3, mtime => 1234567890 },
             ],
         },
-        'read ts with as_of'
+        'read ts with an as_of'
+        ;
+
+    is_deeply
+        $talisker->read(tag => 'BAC', as_of => 1234567889)->recv,
+        {
+            tag => 'BAC',
+            points => [],
+        },
+        'read ts with an early as_of'
         ;
 };
 

@@ -41,6 +41,7 @@ sub write {
     my $tag         = $args{tag};
     my $points      = $args{points};
     my $ts_write_cb = $args{callback};
+    my $cv          = AnyEvent->condvar;
 
     my $redis                = $self->redis;
     my $now                  = gettimeofday;
@@ -79,10 +80,10 @@ sub write {
         confess "Write failed: $err" if !$err;
 
         return if ++$pts_written_cnt < $pts_written_expected;
-        return $ts_write_cb->();
+        $cv->send;
     };
 
-    return;
+    return $cv;
 }
 
 sub read {
@@ -92,7 +93,8 @@ sub read {
     my $start_stamp = $args{start_stamp} // 0;
     my $end_stamp   = $args{end_stamp}   // $INF;
     my $as_of       = $args{as_of}       // $INF;
-    my $ts_cb       = $args{callback};
+    # my $ts_cb       = $args{callback};
+    my $cv          = AnyEvent->condvar;
 
     my $redis        = $self->redis;
     my $pts          = [];
@@ -127,7 +129,7 @@ sub read {
 
     $mtimes_cb = sub {
         my ($pt_idx, $stamp, $mtimes) = @_;
-        my $mtime = $mtimes->[-1];
+        my $mtime = $mtimes->[-1] // '';
 
         $redis->command(
             ['HGET', $tag, "$stamp:$mtime"],
@@ -142,13 +144,13 @@ sub read {
 
         return if ++$pts_read_cnt < $pts_read_exp;
 
-        $ts_cb->({
+        $cv->send({
             tag    => $tag,
             points => [ grep { defined $_->{value} } @$pts ],
         });
     };
 
-    return;
+    return $cv;
 }
 
 1;
