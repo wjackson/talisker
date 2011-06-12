@@ -2,6 +2,7 @@ package Talisker;
 
 use namespace::autoclean;
 use Moose;
+use AnyEvent::Hiredis;
 
 has host => (
     is      => 'ro',
