@@ -16,7 +16,7 @@ sub write {
 
     my $redis           = $self->redis;
     my $writes_cnt      = 0;
-    my $writes_expected = 2;
+    my $writes_expected = 3;
 
     my $pt_written_cb;
 
@@ -36,12 +36,17 @@ sub write {
     }
 
     $redis->command(
-        ['HMSET', $tag, @point_hset_args ],
+        ['ZADD', 'tags', 0, $tag],
         sub { $pt_written_cb->(@_) },
     );
 
     $redis->command(
-        ['ZADD', "$tag:stamps", @stamp_zset_args ],
+        ['HMSET', $tag, @point_hset_args],
+        sub { $pt_written_cb->(@_) },
+    );
+
+    $redis->command(
+        ['ZADD', "$tag:stamps", @stamp_zset_args],
         sub { $pt_written_cb->(@_) },
     );
 
@@ -72,20 +77,47 @@ sub read {
     my $pts_read_exp;
 
     # intermediate callbacks
-    my ($stamps_cb, $mtimes_cb, $pts_cb);
+    my ($exists_cb, $stamps_cb, $mtimes_cb, $pts_cb);
 
     my @stamps;
     my @values;
 
     $redis->command(
-        ['ZRANGEBYSCORE', "$tag:stamps", $start_stamp, $end_stamp],
-        sub { @stamps = @{ $_[0] }; $stamps_cb->() },
+        ['ZRANK', 'tags', $tag],
+        sub {
+            my ($rank, $err) = @_;
+            confess $err if defined $err;
+            return $ts_read_cb->() if !defined $rank;
+
+            $exists_cb->();
+        },
     );
+
+    $exists_cb = sub {
+        $redis->command(
+            ['ZRANGEBYSCORE', "$tag:stamps", $start_stamp, $end_stamp],
+            sub {
+                my ($stamps, $err) = @_;
+                confess $err if defined $err;
+                @stamps = @{ $stamps };
+
+                return $ts_read_cb->({ tag => $tag, points => [] })
+                    if !@stamps;
+
+                $stamps_cb->();
+            },
+        );
+    };
 
     $stamps_cb = sub {
         $redis->command(
             ['HMGET', $tag, @stamps ],
-            sub { @values = @{ $_[0] }; $pts_cb->() },
+            sub {
+                my ($values, $err) = @_;
+                confess $err if defined $err;
+                @values = @{ $values };
+                $pts_cb->();
+            },
         );
     };
 
@@ -97,6 +129,123 @@ sub read {
             points => \@pts,
         });
     };
+
+    return;
+}
+
+sub delete {
+    my ($self, %args) = @_;
+
+    return defined $args{stamps}
+         ? $self->_delete_points(%args)
+         : $self->_delete_ts(%args)
+         ;
+}
+
+sub _delete_points {
+    my ($self, %args) = @_;
+
+    my $tag       = $args{tag};
+    my $stamps    = $args{stamps};
+    my $delete_cb = $args{callback};
+
+    my $redis            = $self->redis;
+    my $delete_cnt       = 0;
+    my $deletes_expected = 2;
+
+    my $pt_deleted_cb;
+
+    my @point_hdel_args;
+    my @stamp_zdel_args;
+
+    for my $stamp (@{ $stamps }) {
+
+        # delete the point
+        push @point_hdel_args, $stamp;
+
+        # delete the stamp from the index of the time series' stamps
+        push @stamp_zdel_args, $stamp;
+    }
+
+    $redis->command(
+        ['HDEL', $tag, @point_hdel_args ],
+        sub { $pt_deleted_cb->(@_) },
+    );
+
+    $redis->command(
+        ['ZREM', "$tag:stamps", @stamp_zdel_args ],
+        sub { $pt_deleted_cb->(@_) },
+    );
+
+    $pt_deleted_cb = sub {
+        my ($ok, $err) = @_;
+
+        confess "Delete failed: $err" if defined $err;
+
+        return if ++$delete_cnt < $deletes_expected;
+
+        $delete_cb->();
+    };
+
+    return;
+}
+
+sub _delete_ts {
+    my ($self, %args) = @_;
+
+    my $tag       = $args{tag};
+    my $delete_cb = $args{callback};
+
+    my $redis            = $self->redis;
+    my $delete_cnt       = 0;
+    my $deletes_expected = 3;
+
+    my $ts_deleted_cb;
+
+    my @ts_hset_del_args;
+    my @ts_zset_del_args;
+
+    $redis->command(
+        ['ZREM', 'tags', $tag ],
+        sub { $ts_deleted_cb->(@_) },
+    );
+
+    $redis->command(
+        ['DEL', $tag ],
+        sub { $ts_deleted_cb->(@_) },
+    );
+
+    $redis->command(
+        ['DEL', "$tag:stamps" ],
+        sub { $ts_deleted_cb->(@_) },
+    );
+
+    $ts_deleted_cb = sub {
+        my ($ok, $err) = @_;
+
+        confess "Delete failed: $err" if defined $err;
+
+        return if ++$delete_cnt < $deletes_expected;
+
+        $delete_cb->();
+    };
+
+    return;
+}
+
+sub tags {
+    my ($self, %args) = @_;
+
+    my $tags_cb = $args{callback};
+
+    $self->redis->command(
+        ['ZRANGE', 'tags', 0, -1 ],
+        sub {
+            my ($tags, $err) = @_;
+            confess $err if defined $err;
+            $tags_cb->($tags);
+        },
+    );
 
     return;
 }

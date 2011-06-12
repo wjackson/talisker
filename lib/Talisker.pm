@@ -31,7 +31,7 @@ has backend => (
     accessor   => 'backend',
     does       => 'Talisker::Backend::Role',
     lazy_build => 1,
-    handles    => [ qw(read write compact) ],
+    handles    => [ qw(read write delete compact tags) ],
 );
 
 sub _build_redis {
