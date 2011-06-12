@@ -139,6 +139,17 @@ test_redis {
 
     {
         my $cv = AE::cv;
+        my $count;
+        my $read_ts; $talisker->count(
+            callback => sub { $count = shift; $cv->send },
+        );
+        $cv->recv;
+
+        is $count, 1, 'count is 1';
+    }
+
+    {
+        my $cv = AE::cv;
         $talisker->delete(
             tag      => 'BAC',
             callback => sub { $cv->send },
