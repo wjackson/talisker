@@ -244,18 +244,18 @@ sub _index_elem {
 sub read {
     my ($self, %args) = @_;
 
-    my $order_by = $args{order_by};
-    my $offset   = $args{offset} // 0;
-    my $limit    = $args{limit}  // -1;
-    my $cb       = $args{cb};
+    my $order_by  = $args{order_by};
+    my $start_idx = $args{start_idx} // 0;
+    my $stop_idx  = $args{stop_idx}  // -1;
+    my $cb        = $args{cb};
 
-    my $redis    = $self->redis;
-    my $id       = $self->id;
+    my $redis     = $self->redis;
+    my $id        = $self->id;
 
-    my $elems    = {};
-    my $elem_ids = [];
+    my $elems     = {};
+    my $elem_ids  = [];
 
-    $redis->command( ['ZRANGE', "$id:$order_by:idx", $offset, $limit ], sub {
+    $redis->command( ['ZRANGE', "$id:$order_by:idx", $start_idx, $stop_idx ], sub {
         my ($elem_ids, $err) = @_;
 
         return $cb->(undef, $err) if $err;
@@ -282,3 +282,5 @@ sub read {
 __PACKAGE__->meta->make_immutable;
 
 1;
+
+__END__

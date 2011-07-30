@@ -80,10 +80,10 @@ test_redis {
     my $read_by_title;
     $cv = AE::cv;
     $tcol->read(
-        order_by => 'title',
-        offset   => 1,
-        limit    => 2,
-        cb       => sub {
+        order_by  => 'title',
+        start_idx => 1,
+        stop_idx  => 2,
+        cb        => sub {
             $read_by_title = shift;
             my $err = shift;
             warn $err if $err;
@@ -115,10 +115,10 @@ test_redis {
     my $read_by_pages;
     $cv = AE::cv;
     $tcol->read(
-        order_by => 'pages',
-        offset   => 1,
-        limit    => 3,
-        cb       => sub {
+        order_by  => 'pages',
+        start_idx => 1,
+        stop_idx  => 3,
+        cb        => sub {
             $read_by_pages = shift;
             my $err = shift;
 
