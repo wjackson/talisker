@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-use AE;
+use AnyEvent;
 
 use t::Redis;
 use ok 'Talisker';
@@ -9,9 +9,9 @@ use ok 'Talisker';
 test_redis {
     my $port = shift;
     my $talisker = Talisker->new(backend_type => 'Simple', port => $port);
-    
+
     isa_ok $talisker, 'Talisker';
-    
+
     {
         my $cv = AE::cv;
         $talisker->write(
