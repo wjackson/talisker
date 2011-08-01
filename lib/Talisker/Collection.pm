@@ -64,7 +64,7 @@ sub write {
 
     Talisker::Chain->new(
         inputs      => $elements,
-        workers     => 10,
+        workers     => 100,
         work_cb     => $work_cb,
         finished_cb => $finished_cb,
     )->go;
@@ -147,7 +147,7 @@ sub _mk_indexes {
         };
 
         Talisker::Chain->new(
-            workers     => 10,
+            workers     => 100,
             inputs      => $sha1s,
             finished_cb => sub { $cb->() },
             work_cb     => $work_cb,
@@ -177,7 +177,7 @@ sub _clear_indexes {
     };
 
     Talisker::Chain->new(
-        workers     => 10,
+        workers     => 100,
         inputs      => $self->indexes,
         finished_cb => sub { $cb->() },
         work_cb     => $work_cb,
