@@ -1,6 +1,5 @@
 package Talisker::Collection;
 
-use feature 'say';
 use Moose;
 use namespace::autoclean;
 use JSON;
@@ -26,20 +25,6 @@ has expire => (
     isa     => 'Int',
     default => 0,
 );
-
-has ops_per_write => (
-    accessor   => 'ops_per_write',
-    isa        => 'Int',
-    lazy_build => 1,
-);
-
-sub _build_ops_per_write {
-    my ($self) = @_;
-
-    my $ops = 1 + @{ $self->indexes };;
-
-    return $ops;
-}
 
 sub write {
     my ($self, %args) = @_;
