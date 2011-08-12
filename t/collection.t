@@ -182,9 +182,9 @@ test_redis {
     {
 
         my $tcol = Talisker::Collection->new(
-            port    => $port,
-            id      => 'cities',
-            indexes => [
+            talisker => $talisker,
+            id       => 'cities',
+            indexes  => [
                 {
                     field => 'city',
                     sort  => 'alpha',
@@ -235,8 +235,8 @@ test_redis {
         my $points = [];
 
         my $tcol = Talisker::Collection->new(
-            port    => $port,
-            id      => 'cities',
+            talisker => $talisker,
+            id       => 'cities',
         );
 
         $tcol->read(
@@ -265,77 +265,77 @@ test_redis {
     }
 
     {
-       my $cv = AE::cv;
-       my $err;
-       my $points = [];
+        my $cv = AE::cv;
+        my $err;
+        my $points = [];
 
-       my $tcol = Talisker::Collection->new(
-           port    => $port,
-           id      => 'cities',
-       );
+        my $tcol = Talisker::Collection->new(
+            talisker => $talisker,
+            id      => 'cities',
+        );
 
-       $tcol->read(
-           order_by => 'humidity',
-           cb => sub {
-               ($points, $err) = @_;
+        $tcol->read(
+            order_by => 'humidity',
+            cb => sub {
+                ($points, $err) = @_;
 
-               confess $err if $err;
+                confess $err if $err;
 
-               $cv->send;
-           },
-       );
+                $cv->send;
+            },
+        );
 
-       $cv->recv;
+        $cv->recv;
 
-       confess $err if $err;
+        confess $err if $err;
 
-       is_deeply
-           $points,
-           [
-               sort { $a->{humidity} <=> $b->{humidity} }
-                   @{ $all_selected }
-           ],
-           'sorted by humidity'
-           ;
+        is_deeply
+            $points,
+            [
+                sort { $a->{humidity} <=> $b->{humidity} }
+                    @{ $all_selected }
+            ],
+            'sorted by humidity'
+            ;
     }
 
     {
-       my $cv = AE::cv;
-       my $err;
-       my $points = [];
+        my $cv = AE::cv;
+        my $err;
+        my $points = [];
 
-       my $tcol = Talisker::Collection->new(
-           port    => $port,
-           id      => 'cities',
-       );
+        my $tcol = Talisker::Collection->new(
+            talisker => $talisker,
+            id       => 'cities',
+        );
 
-       $tcol->read(
-           order_by => 'stamp',
-           cb => sub {
-               ($points, $err) = @_;
+        $tcol->read(
+            order_by => 'stamp',
+            cb => sub {
+                ($points, $err) = @_;
 
-               confess $err if $err;
+                confess $err if $err;
 
-               $cv->send;
-           },
-       );
+                $cv->send;
+            },
+        );
 
-       $cv->recv;
+        $cv->recv;
 
-       confess $err if $err;
+        confess $err if $err;
 
-       is_deeply
-           $points,
-           [
-               sort {
-                   join('', (split m{/}, $a->{date} )[2,0,1] )
-                   <=>
-                   join('', (split m{/}, $b->{date} )[2,0,1] )
-               }
-                   @{ $all_selected }
-           ],
-           'sorted by stamp'
-           ;
+        is_deeply
+            $points,
+            [
+                sort {
+                    join('', (split m{/}, $a->{date} )[2,0,1] )
+                    <=>
+                    join('', (split m{/}, $b->{date} )[2,0,1] )
+                }
+                    @{ $all_selected }
+            ],
+            'sorted by stamp'
+            ;
     }
 };
 

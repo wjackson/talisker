@@ -6,8 +6,6 @@ use JSON;
 use Talisker::Chain;
 use List::Util qw(sum);
 
-with 'Talisker::RedisRole';
-
 has id => (
     is       => 'ro',
     isa      => 'Str',
@@ -20,19 +18,11 @@ has indexes => (
 );
 
 has talisker => (
-    is         => 'ro',
-    isa        => 'Talisker',
-    lazy_build => 1,
+    is       => 'ro',
+    isa      => 'Talisker',
+    required => 1,
+    handles  => [ 'redis' ],
 );
-
-sub _build_talisker {
-    my ($self) = @_;
-
-    return Talisker->new(
-        host => $self->host,
-        port => $self->port,
-    );
-}
 
 sub write {
     my ($self, %args) = @_;
@@ -184,8 +174,8 @@ sub read {
     my $stop_idx  = $args{stop_idx}  // -1;
     my $cb        = $args{cb};
 
-    my $redis     = $self->redis;
     my $talisker  = $self->talisker;
+    my $redis     = $self->redis;
     my $id        = $self->id;
 
     my $pts       = [];
