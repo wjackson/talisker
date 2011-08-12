@@ -63,9 +63,31 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts; $talisker->read(
-            tag      => 'BAC',
-            as_of    => 1234567891,
-            callback => sub { $read_ts = shift; $cv->send },
+            tag         => 'BAC',
+            start_stamp => 20100405,
+            end_stamp   => 20100405,
+            cb          => sub { $read_ts = shift; $cv->send },
+        );
+        $cv->recv;
+
+        is_deeply
+            $read_ts,
+            {
+                tag => 'BAC',
+                points => [
+                    { stamp => 20100405, value => 1.1  },
+                ],
+            },
+            'read ts'
+            ;
+    }
+
+    {
+        my $cv = AE::cv;
+        my $read_ts; $talisker->read(
+            tag   => 'BAC',
+            as_of => 1234567891,
+            cb    => sub { $read_ts = shift; $cv->send },
         );
         $cv->recv;
 

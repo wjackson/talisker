@@ -9,9 +9,9 @@ use ok 'Talisker';
 test_redis {
     my $port = shift;
     my $talisker = Talisker->new(backend_type => 'Revision', port => $port);
-    
+
     isa_ok $talisker, 'Talisker';
-    
+
     # write some some pts to a time series
     {
         my $cv = AE::cv;

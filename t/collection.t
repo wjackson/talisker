@@ -3,200 +3,340 @@ use warnings;
 use Test::More;
 use AnyEvent;
 use Carp;
+use JSON;
 
 use t::Redis;
+use Talisker;
 use ok 'Talisker::Collection';
 
+my $all_selected = [
+    {
+        city        => 'Chicago',
+        date        => '04/05/2010',
+        temperature => '40.1',
+        humidity    => '20',
+        description => 'Cloudy',
+    },
+    {
+        city        => 'Chicago',
+        date        => '04/06/2010',
+        temperature => '42.3',
+        humidity    => '30',
+        description => 'Sunny',
+    },
+    {
+        city        => 'Chicago',
+        date        => '04/07/2010',
+        temperature => '48.2',
+        humidity    => '40',
+        description => 'Overcast',
+    },
+
+    {
+        city        => 'Portland',
+        date        => '04/06/2010',
+        temperature => '72.3',
+        humidity    => '30',
+        description => 'Rainy',
+    },
+    {
+        city        => 'Portland',
+        date        => '04/07/2010',
+        temperature => '68.2',
+        humidity    => '40',
+        description => 'Sunny',
+    },
+    {
+        city        => 'Portland',
+        date        => '04/10/2010',
+        temperature => '66.2',
+        humidity    => '20',
+        description => 'Rainy',
+    },
+];
+
 test_redis {
-    my $port = shift;
+    my $port = shift // 6379;
 
-    my $tcol = Talisker::Collection->new(
-        port    => $port,
-        id      => 'books',
-        expire  => 60,        # TODO
-        indexes => [
-            {
-                field => 'title',
-                sort  => 'lexical',
-            },
-            {
-                field => 'pages',
-                sort  => 'numerical',
-            },
-            {
-                field => 'author',
-                sort  => 'lexical',
-            },
-        ],
+    my $talisker = Talisker->new(
+        port         => $port,
+        backend_type => 'Simple',
     );
 
-    my $books = [
-        {
-            title  => 'Nightfall',
-            author => 'Isaac Asimov',
-            pages  => 8,
-        },
-        {
-            title  => 'Ubik',
-            author => 'Phillip K. Dick',
-            pages  => 9,
-        },
-        {
-            title  => 'Daemon',
-            author => 'Daniel Suarez',
-            pages  => 10,
-        },
-        {
-            title  => 'Lost Horizon',
-            author => 'James Hilton',
-            pages  => 12,
-        },
-        {
-            title  => 'Three Laws of Robotics',
-            author => 'Isaac Asimov',
-            pages  => 88,
-        },
-    ];
+    { # setup the talisker db
 
-    #
-    # write
-    #
-    my $cv = AE::cv;
-    $tcol->write(
-        elements => $books,
-        cb       => sub {
-            my ( undef, $err ) = @_;
+        my $cv = AE::cv;
+        my $cmds_run = 0;
+        my $cmds_ret = 0;
 
-            warn $err if $err;
+        $cmds_run++;
+        $talisker->write(
+            tag    => 'chicago',
+            points => [
+                {
+                    stamp => 20100405,
+                    value => encode_json {
+                        city        => 'Chicago',
+                        date        => '04/05/2010',
+                        temperature => '40.1',
+                        humidity    => '20',
+                        description => 'Cloudy',
+                    },
+                },
+                {
+                    stamp => 20100406,
+                    value => encode_json {
+                        city        => 'Chicago',
+                        date        => '04/06/2010',
+                        temperature => '42.3',
+                        humidity    => '30',
+                        description => 'Sunny',
+                    },
+                },
+                {
+                    stamp => 20100407,
+                    value => encode_json {
+                        city        => 'Chicago',
+                        date        => '04/07/2010',
+                        temperature => '48.2',
+                        humidity    => '40',
+                        description => 'Overcast',
+                    },
+                },
+                {
+                    stamp => 20100408,
+                    value => encode_json {
+                        city        => 'Chicago',
+                        date        => '04/08/2010',
+                        temperature => '46.2',
+                        humidity    => '20',
+                        description => 'Balmy',
+                    },
+                },
+            ],
+            cb => sub {
+                my (undef, $err) = @_;
 
-            $cv->send;
-        },
-    );
-    $cv->recv;
+                confess $err if $err;
 
-    #
-    # read by title
-    #
-    my $read_by_title;
-    $cv = AE::cv;
-    $tcol->read(
-        order_by  => 'title',
-        start_idx => 1,
-        stop_idx  => 2,
-        cb        => sub {
-            $read_by_title = shift;
-            my $err = shift;
-            warn $err if $err;
-
-            $cv->send;
-        },
-    );
-    $cv->recv;
-
-    is_deeply $read_by_title,
-      [
-        {
-            title  => 'Lost Horizon',
-            author => 'James Hilton',
-            pages  => 12,
-        },
-        {
-            title  => 'Nightfall',
-            author => 'Isaac Asimov',
-            pages  => 8,
-        },
-      ],
-      'read elems ordered by title';
-
-
-    #
-    # read by pages
-    #
-    my $read_by_pages;
-    $cv = AE::cv;
-    $tcol->read(
-        order_by  => 'pages',
-        start_idx => 1,
-        stop_idx  => 3,
-        cb        => sub {
-            $read_by_pages = shift;
-            my $err = shift;
-
-            warn $err if $err;
-
-            $cv->send;
-        },
-    );
-    $cv->recv;
-
-    is_deeply $read_by_pages,
-      [
-        {
-            title  => 'Ubik',
-            author => 'Phillip K. Dick',
-            pages  => 9,
-        },
-        {
-            title  => 'Daemon',
-            author => 'Daniel Suarez',
-            pages  => 10,
-        },
-        {
-            title  => 'Lost Horizon',
-            author => 'James Hilton',
-            pages  => 12,
-        },
-      ],
-      'read elems ordered by pages';
-
-
-    #
-    # read by author
-    #
-    my $read_by_author;
-    $cv = AE::cv;
-    $tcol->read(
-        order_by => 'author',
-        cb       => sub {
-            $read_by_author = shift;
-            my $err = shift;
-
-            warn $err if $err;
-
-            $cv->send;
-        },
-    );
-    $cv->recv;
-
-    is_deeply $read_by_author,
-        [
-            {
-                title  => 'Daemon',
-                author => 'Daniel Suarez',
-                pages  => 10,
+                $cv->send if ++$cmds_ret == $cmds_run;
             },
-            {
-                title  => 'Three Laws of Robotics',
-                author => 'Isaac Asimov',
-                pages  => 88,
+        );
+
+        $talisker->write(
+            tag    => 'portland',
+            points => [
+                {
+                    stamp => 20100405,
+                    value => encode_json {
+                        city        => 'Portland',
+                        date        => '04/05/2010',
+                        temperature => '70.1',
+                        humidity    => '20',
+                        description => 'Rainy',
+                    },
+                },
+                  {
+                    stamp => 20100406,
+                    value => encode_json {
+                        city        => 'Portland',
+                        date        => '04/06/2010',
+                        temperature => '72.3',
+                        humidity    => '30',
+                        description => 'Rainy',
+                    },
+                  },
+                  {
+                    stamp => 20100407,
+                    value => encode_json {
+                        city        => 'Portland',
+                        date        => '04/07/2010',
+                        temperature => '68.2',
+                        humidity    => '40',
+                        description => 'Sunny',
+                    },
+                  },
+                  {
+                    stamp => 20100408,
+                    value => encode_json {
+                        city        => 'Portland',
+                        date        => '04/10/2010',
+                        temperature => '66.2',
+                        humidity    => '20',
+                        description => 'Rainy',
+                    },
+                  },
+            ],
+            cb => sub {
+                my (undef, $err) = @_;
+
+                confess $err if $err;
+
+                $cv->send if ++$cmds_ret == $cmds_run;
             },
-            {
-                title  => 'Nightfall',
-                author => 'Isaac Asimov',
-                pages  => 8,
+        );
+
+        $cv->recv;
+    }
+
+    {
+
+        my $tcol = Talisker::Collection->new(
+            port    => $port,
+            id      => 'cities',
+            indexes => [
+                {
+                    field => 'city',
+                    sort  => 'alpha',
+                },
+                {
+                    field => 'temperature',
+                    sort  => 'numeric',
+                },
+                {
+                    field => 'humidity',
+                    sort  => 'numeric',
+                },
+                {
+                    field => 'description',
+                    sort  => 'alpha',
+                },
+            ],
+        );
+
+        my $cv = AE::cv;
+        my $err;
+
+        $tcol->write(
+            points => [
+                { tag => 'chicago',  stamp => 20100405 },
+                { tag => 'chicago',  stamp => 20100406 },
+                { tag => 'chicago',  stamp => 20100407 },
+                { tag => 'portland', stamp => 20100406 },
+                { tag => 'portland', stamp => 20100407 },
+                { tag => 'portland', stamp => 20100408 },
+            ],
+            cb => sub {
+                (undef, $err) = @_;
+
+                $cv->send;
             },
-            {
-                title  => 'Lost Horizon',
-                author => 'James Hilton',
-                pages  => 12,
+        );
+
+        $cv->recv;
+
+        confess $err if $err;
+
+    }
+
+    {
+        my $cv = AE::cv;
+        my $err;
+        my $points = [];
+
+        my $tcol = Talisker::Collection->new(
+            port    => $port,
+            id      => 'cities',
+        );
+
+        $tcol->read(
+            order_by => 'description',
+            cb => sub {
+                ($points, $err) = @_;
+
+                confess $err if $err;
+
+                $cv->send;
             },
-            {
-                title  => 'Ubik',
-                author => 'Phillip K. Dick',
-                pages  => 9,
-            },
-        ],
-        'read elems ordered by author';
+        );
+
+        $cv->recv;
+
+        confess $err if $err;
+
+        is_deeply
+            $points,
+            [
+                sort { $a->{description} cmp $b->{description} }
+                    @{ $all_selected }
+            ],
+            'sorted by description'
+            ;
+    }
+
+    {
+       my $cv = AE::cv;
+       my $err;
+       my $points = [];
+
+       my $tcol = Talisker::Collection->new(
+           port    => $port,
+           id      => 'cities',
+       );
+
+       $tcol->read(
+           order_by => 'humidity',
+           cb => sub {
+               ($points, $err) = @_;
+
+               confess $err if $err;
+
+               $cv->send;
+           },
+       );
+
+       $cv->recv;
+
+       confess $err if $err;
+
+       is_deeply
+           $points,
+           [
+               sort { $a->{humidity} <=> $b->{humidity} }
+                   @{ $all_selected }
+           ],
+           'sorted by humidity'
+           ;
+    }
+
+    {
+       my $cv = AE::cv;
+       my $err;
+       my $points = [];
+
+       my $tcol = Talisker::Collection->new(
+           port    => $port,
+           id      => 'cities',
+       );
+
+       $tcol->read(
+           order_by => 'stamp',
+           cb => sub {
+               ($points, $err) = @_;
+
+               confess $err if $err;
+
+               $cv->send;
+           },
+       );
+
+       $cv->recv;
+
+       confess $err if $err;
+
+       is_deeply
+           $points,
+           [
+               sort {
+                   join('', (split m{/}, $a->{date} )[2,0,1] )
+                   <=>
+                   join('', (split m{/}, $b->{date} )[2,0,1] )
+               }
+                   @{ $all_selected }
+           ],
+           'sorted by stamp'
+           ;
+    }
 };
 
 done_testing();

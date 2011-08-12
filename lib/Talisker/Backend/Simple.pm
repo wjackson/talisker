@@ -31,30 +31,66 @@ sub write {
         push @stamp_zset_args, $stamp, $stamp;
     }
 
-    $redis->command(
-        ['ZADD', 'tags', 0, $tag],
-        sub { $pt_written_cb->(@_) },
-    );
+    my ($write_tag, $read_meta, $write_pts, $write_stamps);
 
-    $redis->command(
-        ['HMSET', $tag, @point_hset_args],
-        sub { $pt_written_cb->(@_) },
-    );
-
-    $redis->command(
-        ['ZADD', "$tag:stamps", @stamp_zset_args],
-        sub { $pt_written_cb->(@_) },
-    );
-
-    $pt_written_cb = sub {
-        my ($ok, $err) = @_;
-
-        confess "Write failed: $err" if defined $err;
-
-        return if ++$writes_cnt < $writes_expected;
-
-        $ts_write_cb->();
+    # make sure there's a tag entry for $tag
+    $write_tag = sub {
+        $redis->command(
+            ['ZADD', 'tags', 0, $tag], sub {
+                my ($meta, $err) = @_;
+                return $cb->(undef, $err) if $err;
+                $read_meta->();
+            },
+        );
     };
+
+    # read meta info and switch tag if this is a link
+    $read_meta = sub {
+        $redis->command(
+            ['HGETALL', "$tag:meta"], sub {
+                my ($meta, $err) = @_;
+
+                return $cb->(undef, $err) if $err;
+
+                my %meta = @{ $meta };
+
+                if (exists $meta{type} && $meta{type} eq 'link') {
+                    $tag = $meta{target};
+                }
+
+                $write_pts->();
+            },
+        );
+    };
+
+    # write out all the pts
+    $write_pts = sub {
+        $redis->command(
+            ['HMSET', $tag, @point_hset_args], sub {
+                my (undef, $err) = @_;
+
+                return $cb->(undef, $err) if $err;
+
+                $write_stamps->();
+            },
+        );
+    };
+
+    # write to the stamps index
+    $write_stamps = sub {
+        $redis->command(
+            ['ZADD', "$tag:stamps", @stamp_zset_args], sub {
+                my (undef, $err) = @_;
+
+                return $cb->(undef, $err) if $err;
+
+                $cb->();
+            },
+        );
+    };
+
+    # go
+    $write_tag->();
 
     return;
 }
@@ -65,39 +101,65 @@ sub read {
     my $tag         = $args{tag};
     my $start_stamp = $args{start_stamp} // '-inf';
     my $end_stamp   = $args{end_stamp}   // '+inf';
-    my $ts_read_cb  = $args{callback};
+    my $cb  = $args{cb};
 
     my $redis        = $self->redis;
     my $pts          = [];
     my $pts_read_cnt = 0;
     my $pts_read_exp;
 
-    # intermediate callbacks
-    my ($exists_cb, $stamps_cb, $mtimes_cb, $pts_cb);
+    my ($exists_cb, $meta_cb, $stamps_cb, $mtimes_cb, $pts_cb);
 
     my @stamps;
     my @values;
 
+    # does the ts exist?
     $redis->command(
         ['ZRANK', 'tags', $tag],
         sub {
             my ($rank, $err) = @_;
-            confess $err if defined $err;
-            return $ts_read_cb->() if !defined $rank;
+
+            return $cb->(undef, $err) if $err;
+            return $cb->()            if !defined $rank;
 
             $exists_cb->();
         },
     );
 
+    # get the ts' meta data
     $exists_cb = sub {
+        $redis->command(
+            ['HGETALL', "$tag:meta"],
+            sub {
+                my ($meta, $err) = @_;
+
+                $cb->(undef, $err) if $err;
+
+                return $meta_cb->() if !@{ $meta };
+
+                my %meta = @{ $meta };
+
+                if (exists $meta{type} && $meta{type} eq 'link') {
+                    $tag = $meta{target};
+                }
+
+                $meta_cb->();
+            },
+        );
+    };
+
+    # read the ts' stamps index
+    $meta_cb = sub {
         $redis->command(
             ['ZRANGEBYSCORE', "$tag:stamps", $start_stamp, $end_stamp],
             sub {
                 my ($stamps, $err) = @_;
-                confess $err if defined $err;
+
+                return $cb->(undef, $err) if $err;
+
                 @stamps = @{ $stamps };
 
-                return $ts_read_cb->({ tag => $tag, points => [] })
+                return $cb->({ tag => $tag, points => [] })
                     if !@stamps;
 
                 $stamps_cb->();
@@ -105,18 +167,22 @@ sub read {
         );
     };
 
+    # read the ts' points
     $stamps_cb = sub {
         $redis->command(
             ['HMGET', $tag, @stamps ],
             sub {
                 my ($values, $err) = @_;
-                confess $err if defined $err;
+
+                return $cb->(undef, $err) if $err;
+
                 @values = @{ $values };
                 $pts_cb->();
             },
         );
     };
 
+    # construct a ts data structure
     $pts_cb = sub {
         my @pts = pairwise { { stamp => $a, value => $b } } @stamps, @values;
 
@@ -176,12 +242,11 @@ sub _delete_points {
     $pt_deleted_cb = sub {
         my ($ok, $err) = @_;
 
-        confess "Delete failed: $err" if defined $err;
+        return $cb->(undef, $err) if $err;
 
         return if ++$delete_cnt < $deletes_expected;
 
-        return $cb->(undef, $err) if $err;
-        return $cb->()            if $cmds_run == $cmds_ret;
+        $cb->();
     };
 
     return;
@@ -193,38 +258,42 @@ sub _delete_ts {
     my $tag       = $args{tag};
     my $cb = $args{cb};
 
-    my $redis            = $self->redis;
-    my $delete_cnt       = 0;
-    my $deletes_expected = 3;
+    my $redis     = $self->redis;
+    my $cmds_run  = 0;
+    my $cmds_ret  = 0;
 
     my $ts_deleted_cb;
 
-    my @ts_hset_del_args;
-    my @ts_zset_del_args;
-
+    $cmds_run++;
     $redis->command(
         ['ZREM', 'tags', $tag ],
         sub { $ts_deleted_cb->(@_) },
     );
 
+    $cmds_run++;
     $redis->command(
         ['DEL', $tag ],
         sub { $ts_deleted_cb->(@_) },
     );
 
+    $cmds_run++;
     $redis->command(
         ['DEL', "$tag:stamps" ],
         sub { $ts_deleted_cb->(@_) },
     );
 
+    $cmds_run++;
+    $redis->command(
+        ['DEL', "$tag:meta" ],
+        sub { $ts_deleted_cb->(@_) },
+    );
+
     $ts_deleted_cb = sub {
-        my ($ok, $err) = @_;
+        $cmds_ret++;
+        my (undef, $err) = @_;
 
-        confess "Delete failed: $err" if defined $err;
-
-        return if ++$delete_cnt < $deletes_expected;
-
-        $cb->();
+        return $cb->(undef, $err) if $err;
+        return $cb->()            if $cmds_run == $cmds_ret;
     };
 
     return;

@@ -8,7 +8,7 @@ with 'Talisker::RedisRole';
 has backend_type => (
     is      => 'ro',
     isa     => 'Str',
-    default => 'Revision',
+    default => 'Simple',
 );
 
 has backend => (

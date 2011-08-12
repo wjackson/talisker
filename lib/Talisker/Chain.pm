@@ -6,7 +6,7 @@ use namespace::autoclean;
 has workers => (
     is      => 'ro',
     isa     => 'Int',
-    default => 1,
+    default => 100,
 );
 
 has work_cb => (
@@ -67,7 +67,7 @@ sub go {
                 $cb_count++;
                 $inflight--;
 
-                return $self->finished_cb->($err) if $err;
+                return $self->finished_cb->(undef, $err) if $err;
 
                 $self->outputs->[$index] = $output;
 
