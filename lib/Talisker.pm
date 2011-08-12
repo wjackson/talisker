@@ -1,4 +1,5 @@
 package Talisker;
+# ABSTRACT: time series store
 
 use Moose;
 use namespace::autoclean;
