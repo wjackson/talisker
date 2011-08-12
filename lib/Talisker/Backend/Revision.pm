@@ -15,7 +15,7 @@ sub write {
 
     my $tag         = $args{tag};
     my $points      = $args{points};
-    my $ts_write_cb = $args{callback};
+    my $ts_write_cb = $args{cb};
 
     my $redis           = $self->redis;
     my $now             = gettimeofday;
@@ -85,7 +85,7 @@ sub read {
     my $start_stamp = $args{start_stamp} // 0;
     my $end_stamp   = $args{end_stamp}   // $INF;
     my $as_of       = $args{as_of}       // $INF;
-    my $ts_read_cb  = $args{callback};
+    my $ts_read_cb  = $args{cb};
     # my $cv          = AnyEvent->condvar;
 
     my $redis        = $self->redis;

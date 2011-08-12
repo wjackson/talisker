@@ -10,15 +10,11 @@ with 'Talisker::Backend::Role';
 sub write {
     my ($self, %args) = @_;
 
-    my $tag         = $args{tag};
-    my $points      = $args{points};
-    my $ts_write_cb = $args{callback};
+    my $tag    = $args{tag};
+    my $points = $args{points};
+    my $cb     = $args{cb};
 
     my $redis           = $self->redis;
-    my $writes_cnt      = 0;
-    my $writes_expected = 3;
-
-    my $pt_written_cb;
 
     my @point_hset_args;
     my @stamp_zset_args;
@@ -124,7 +120,7 @@ sub read {
     $pts_cb = sub {
         my @pts = pairwise { { stamp => $a, value => $b } } @stamps, @values;
 
-        $ts_read_cb->({
+        $cb->({
             tag    => $tag,
             points => \@pts,
         });
@@ -145,9 +141,9 @@ sub delete {
 sub _delete_points {
     my ($self, %args) = @_;
 
-    my $tag       = $args{tag};
-    my $stamps    = $args{stamps};
-    my $delete_cb = $args{callback};
+    my $tag    = $args{tag};
+    my $stamps = $args{stamps};
+    my $cb     = $args{cb};
 
     my $redis            = $self->redis;
     my $delete_cnt       = 0;
@@ -184,7 +180,8 @@ sub _delete_points {
 
         return if ++$delete_cnt < $deletes_expected;
 
-        $delete_cb->();
+        return $cb->(undef, $err) if $err;
+        return $cb->()            if $cmds_run == $cmds_ret;
     };
 
     return;
@@ -194,7 +191,7 @@ sub _delete_ts {
     my ($self, %args) = @_;
 
     my $tag       = $args{tag};
-    my $delete_cb = $args{callback};
+    my $cb = $args{cb};
 
     my $redis            = $self->redis;
     my $delete_cnt       = 0;
@@ -227,7 +224,7 @@ sub _delete_ts {
 
         return if ++$delete_cnt < $deletes_expected;
 
-        $delete_cb->();
+        $cb->();
     };
 
     return;
@@ -238,14 +235,14 @@ sub tags {
 
     my $start_idx = $args{start_idx} // 0;
     my $end_idx   = $args{end_idx}   // -1;
-    my $tags_cb   = $args{callback};
+    my $cb        = $args{cb};
 
     $self->redis->command(
-        ['ZRANGE', 'tags', $start_idx, $end_idx],
-        sub {
+        ['ZRANGE', 'tags', $start_idx, $end_idx], sub {
             my ($tags, $err) = @_;
-            confess $err if defined $err;
-            $tags_cb->($tags);
+
+            return $cb->(undef, $err) if $err;
+            return $cb->($tags);
         },
     );
 
@@ -255,14 +252,14 @@ sub tags {
 sub count {
     my ($self, %args) = @_;
 
-    my $count_cb = $args{callback};
-    
+    my $cb = $args{cb};
+
     $self->redis->command(
-        ['ZCARD', 'tags'],
-        sub {
+        ['ZCARD', 'tags'], sub {
             my ($count, $err) = @_;
-            confess $err if defined $err;
-            $count_cb->($count);
+
+            return $cb->(undef, $err) if $err;
+            return $cb->($count);
         },
     );
 

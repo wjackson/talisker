@@ -23,7 +23,7 @@ test_redis {
                 { stamp  => 20100406, value => 1.21, mtime => 1234567892},
                 { stamp  => 20100407, value => 1.3,  mtime => 1234567890},
             ],
-            callback => sub { $cv->send },
+            cb => sub { $cv->send },
         );
         $cv->recv;
 
@@ -33,7 +33,7 @@ test_redis {
         my $cv = AE::cv;
         my $read_ts1; $talisker->read(
             tag => 'BAC',
-            callback => sub { $read_ts1 = shift; $cv->send },
+            cb  => sub { $read_ts1 = shift; $cv->send },
         );
         $cv->recv;
 
@@ -54,9 +54,9 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts; $talisker->read(
-            tag      => 'BAC',
-            as_of    => 1234567891,
-            callback => sub { $read_ts = shift; $cv->send },
+            tag   => 'BAC',
+            as_of => 1234567891,
+            cb    => sub { $read_ts = shift; $cv->send },
         );
         $cv->recv;
 
@@ -77,9 +77,9 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts; $talisker->read(
-            tag      => 'BAC',
-            as_of    => 1234567889,
-            callback => sub { $read_ts = shift; $cv->send },
+            tag   => 'BAC',
+            as_of => 1234567889,
+            cb    => sub { $read_ts = shift; $cv->send },
         );
         $cv->recv;
 
