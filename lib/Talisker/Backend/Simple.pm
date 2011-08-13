@@ -255,8 +255,8 @@ sub _delete_points {
 sub _delete_ts {
     my ($self, %args) = @_;
 
-    my $tag       = $args{tag};
-    my $cb = $args{cb};
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
 
     my $redis     = $self->redis;
     my $cmds_run  = 0;

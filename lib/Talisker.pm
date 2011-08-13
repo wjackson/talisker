@@ -44,7 +44,7 @@ sub link {
 
                 return $cb->(undef, $err) if $err;
                 return $set_type->();
-            }
+            },
         );
     };
 
@@ -67,10 +67,53 @@ sub link {
                 return $cb->(undef, $err) if $err;
                 return $cb->();
             },
-        )
+        );
     };
 
     $set_tags_entry->();
+
+    return;
+}
+
+sub resolve_link {
+    my ($self, %args) = @_;
+
+    my $tag    = $args{tag};
+    my $cb     = $args{cb};
+
+    my ($read_tag_entry, $read_meta);
+
+    $read_tag_entry = sub {
+        $self->redis->command(
+            ['ZRANK', 'tags', $tag], sub {
+                my ($rank, $err) = @_;
+
+                return $cb->(undef, $err) if $err;
+                return $cb->()            if !defined $rank;
+
+                return $read_meta->();
+            },
+        );
+    };
+
+    $read_meta = sub {
+        $self->redis->command(
+            [ 'HGETALL', "$tag:meta" ], sub {
+                my ($meta, $err) = @_;
+
+                return $cb->(undef, $err) if $err;
+
+                my %meta = @{ $meta // [] };
+
+                return $cb->(undef, qq/$tag isn't a link/)
+                    if defined $meta{type} && $meta{type} ne 'link';
+
+                return $cb->($meta{target});
+            },
+        );
+    };
+
+    $read_tag_entry->();
 
     return;
 }

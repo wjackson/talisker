@@ -2,6 +2,7 @@ use strict;
 use warnings;
 use Test::More;
 use AnyEvent;
+use Carp qw(confess);
 
 use t::Redis;
 use ok 'Talisker';
@@ -21,12 +22,20 @@ test_redis {
         ],
     };
 
-    my ($write_ts, $mk_link, $read_link, $write_link, $read_ts, $cv);
+    my (
+        $write_ts, $mk_link, $resolve_link, $read_link, $write_link,
+        $read_ts, $cv
+    );
 
     $write_ts = sub {
         $talisker->write(
             %{ $TS },
-            cb => $mk_link,
+            cb => sub {
+                my (undef, $err) = @_;
+
+                return $cv->send($err) if $err;
+                return $mk_link->();
+            },
         );
     };
 
@@ -34,7 +43,22 @@ test_redis {
         $talisker->link(
             tag    => 'LinkToBAC',
             target => 'BAC',
-            cb     => $read_link,
+            cb     => $resolve_link,
+        );
+    };
+
+    $resolve_link = sub {
+        $talisker->resolve_link(
+            tag => 'LinkToBAC',
+            cb  => sub {
+                my ($target, $err) = @_;
+
+                return $cv->send($err) if $err;
+
+                is $target, 'BAC', 'link resolved correctly';
+
+                $read_link->();
+            },
         );
     };
 
@@ -88,7 +112,9 @@ test_redis {
     # go
     $cv = AE::cv;
     $write_ts->();
-    $cv->recv;
+    my $err = $cv->recv;
+
+    confess $err if $err;
 };
 
 done_testing;
