@@ -3,7 +3,7 @@ package Talisker::Collection;
 use Moose;
 use namespace::autoclean;
 use JSON;
-use Talisker::Chain;
+use Talisker::Util qw(merge_point);
 use List::Util qw(sum);
 
 has id => (
@@ -41,11 +41,11 @@ sub write {
                 $self->_write_pt( $pt, $cb );
             };
 
-            Talisker::Chain->new(
-                inputs      => $pts,
-                work_cb     => $work_cb,
-                finished_cb => $cb,
-            )->go;
+            merge_point(
+                inputs   => $pts,
+                work     => $work_cb,
+                finished => $cb,
+            );
 
         });
     });
@@ -212,11 +212,11 @@ sub read {
                 );
             };
 
-            Talisker::Chain->new(
-                inputs      => $pt_ids,
-                work_cb     => $work_cb,
-                finished_cb => sub { $cb->($pts, $_[1]) },
-            )->go;
+            merge_point(
+                inputs   => $pt_ids,
+                work     => $work_cb,
+                finished => sub { $cb->( $pts, $_[1] ) },
+            );
         }
     );
 

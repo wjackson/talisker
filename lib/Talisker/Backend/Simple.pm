@@ -4,6 +4,7 @@ use Moose;
 use namespace::autoclean;
 use AnyEvent::Hiredis;
 use List::MoreUtils qw(pairwise);
+use Talisker::Util qw(merge_point);
 
 with 'Talisker::Backend::Role';
 
