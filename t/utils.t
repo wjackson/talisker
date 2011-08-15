@@ -3,9 +3,12 @@ use warnings;
 use Test::More;
 use AnyEvent;
 
-use Talisker::Util qw(merge_point chain);
+use Talisker::Util qw(
+    merge_point
+    chain
+);
 
-{ # merge_point
+{ # merge_point (map syntax)
 
     my $inflight     = 0;
     my $max_inflight = 0;
@@ -40,6 +43,7 @@ use Talisker::Util qw(merge_point chain);
     
     my $cv = AE::cv;
     
+    # apply_merge
     merge_point(
         inputs    => [ 0..4 ],
         work      => $work_cb,
@@ -49,6 +53,62 @@ use Talisker::Util qw(merge_point chain);
     
     $cv->recv;
 
+}
+
+{ # merge_point (mesh syntax)
+
+    my @timers;
+    my $cv           = AE::cv;
+    my $inflight     = 0;
+    my $max_inflight = 0;
+
+    my $mk_sub =  sub {
+        my ($n) = @_ ;
+
+        return sub {
+            my ($input, $cb) = @_;
+
+            $inflight++;
+
+            $max_inflight
+                = $inflight > $max_inflight ? $inflight : $max_inflight;
+
+            push @timers,
+                AnyEvent->timer(
+                    after => 0,
+                    cb => sub {
+                        $inflight--;
+                        $cb->($input+$n);
+                    },
+                );
+        };
+    };
+
+    my $finished_cb = sub {
+        my ($results) = @_;
+
+        is_deeply
+            $results,
+            [ 2, 3, 4, 5, 6 ],
+            'successfully generated results';
+
+        is $max_inflight, 3, 'max inflight = 3';
+    };
+
+    merge_point(
+        inputs => [ 1, 1, 1, 1, 1, 1 ],
+        work   => [
+            $mk_sub->(1),
+            $mk_sub->(2),
+            $mk_sub->(3),
+            $mk_sub->(4),
+            $mk_sub->(5),
+        ],
+        finished  => sub { $finished_cb->(@_); $cv->send },
+        at_a_time => 3,
+    );
+
+    $cv->recv;
 }
 
 { # chain
@@ -85,5 +145,6 @@ use Talisker::Util qw(merge_point chain);
     is $res, 6, 'chain result is 6';
 
 }
+
 
 done_testing;

@@ -1,6 +1,7 @@
 package Talisker::Util;
 use strict;
 use warnings;
+use feature 'switch';
 use Carp;
 
 our @ISA = qw(Exporter);
@@ -11,6 +12,21 @@ my %DEFAULTS = (
 );
 
 sub merge_point {
+    my (%args) = @_;
+
+    given ( ref $args{work} ) {
+        when ('ARRAY') { goto \&_mesh_merge_point }
+        when ('CODE')  { goto \&_map_merge_point  }
+        default { croak q/Argument work must be an ArrayRef or a CodeRef/ }
+    };
+}
+
+#
+# _map_merge_point
+#
+# Applies a callback given by argument 'work' to each element in 'inputs'.
+#
+sub _map_merge_point {
     my (%args) = @_;
 
     my $inputs      = $args{inputs};
@@ -54,6 +70,68 @@ sub merge_point {
 
                 return $finished_cb->($outputs)
                     if $cb_count == @{ $inputs };
+
+                $cb->();
+            });
+        }
+    };
+
+    $cb->();
+
+    return;
+}
+
+#
+# _mesh_merge_point
+#
+# Applies each cb in 'work' to its corresponding argument in 'inputs'.
+#
+sub _mesh_merge_point {
+    my (%args) = @_;
+
+    my $inputs      = $args{inputs};
+    my $work_cbs    = $args{work};
+    my $finished_cb = $args{finished};
+    my $at_a_time   = $args{at_a_time} // $DEFAULTS{at_a_time};
+
+    croak q/Argument 'inputs' is required/   if !defined $inputs;
+    croak q/Argument 'work' is required/     if !defined $work_cbs;
+    croak q/Argument 'finished' is required/ if !defined $finished_cb;
+
+    croak q/Argument 'work' must be an ArrayRef/   if ref $work_cbs ne 'ARRAY';
+    croak q/Argument 'finished' must be a CodeRef/ if ref $finished_cb ne 'CODE';
+
+    $inputs //= map { undef } 1..@{ $work_cbs };
+
+    my $inflight = 0;
+    my $cb_count = 0;
+    my $work_idx = 0;
+    my $outputs  = [];
+
+    my $cb; $cb = sub {
+
+        while ($inflight < $at_a_time && $work_idx <= $#{ $work_cbs }) {
+
+            $inflight++;
+
+            # setup this work cb
+            my $index   = $work_idx;
+            my $work_cb = $work_cbs->[ $index ];
+            my $input   = $inputs->[ $index ];
+            $work_idx++;
+
+            $work_cb->($input, sub {
+                my ($output, $err) = @_;
+
+                $cb_count++;
+                $inflight--;
+
+                return $finished_cb->(undef, $err) if $err;
+
+                $outputs->[$index] = $output;
+
+                return $finished_cb->($outputs)
+                    if $cb_count == @{ $work_cbs };
 
                 $cb->();
             });
