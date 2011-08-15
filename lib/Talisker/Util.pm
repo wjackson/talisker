@@ -4,7 +4,7 @@ use warnings;
 use Carp;
 
 our @ISA = qw(Exporter);
-our @EXPORT_OK = qw(merge_point);
+our @EXPORT_OK = qw(merge_point chain);
 
 my %DEFAULTS = (
     at_a_time => 100,
@@ -65,5 +65,34 @@ sub merge_point {
     return;
 }
 
+sub chain {
+    my (%args) = @_;
+
+    my $input       = $args{input};
+    my $finished_cb = $args{finished};
+    my $steps       = $args{steps};
+
+    croak q/Argument 'finished' is required/ if !defined $finished_cb;
+    croak q/Argument 'steps' is required/    if !defined $steps;
+
+    croak q/Argument 'finished' must be a CodeRef/ if ref $finished_cb ne 'CODE';
+    croak q/Argument 'steps' must be an ArrayRef/  if ref $steps ne 'ARRAY';
+
+    my $cb; $cb = sub {
+        my ($result, $err) = @_;
+
+        return $finished_cb->(undef, $err) if $err;
+
+        my $next_cb = shift @{ $steps };
+
+        return $finished_cb->($result) if !defined $next_cb;
+
+        $next_cb->($result, $cb);
+    };
+
+    $cb->($input);
+
+    return;
+}
 
 1;

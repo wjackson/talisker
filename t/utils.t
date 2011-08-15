@@ -3,48 +3,87 @@ use warnings;
 use Test::More;
 use AnyEvent;
 
-use Talisker::Util qw(merge_point);
+use Talisker::Util qw(merge_point chain);
 
-my $inflight     = 0;
-my $max_inflight = 0;
+{ # merge_point
 
-my @timers;
-my $work_cb = sub {
-    my ($n, $cb) = @_;
-    $inflight++;
+    my $inflight     = 0;
+    my $max_inflight = 0;
+    
+    my @timers;
+    my $work_cb = sub {
+        my ($n, $cb) = @_;
+        $inflight++;
+    
+        # record the maximum number of workers that are in flight
+        $max_inflight = $inflight > $max_inflight ? $inflight : $max_inflight;
+    
+        # use a timer to make the work asynchronous
+        push @timers,
+            AnyEvent->timer(
+                after => 0,
+                cb => sub { $inflight--; $cb->( $n * 2 ) },
+            );
+    };
+    
+    my $finished_cb = sub {
+        my ($outputs, $err) = @_;
+    
+        is_deeply
+            $outputs,
+            [ 0, 2, 4, 6, 8 ],
+            'inputs doubled',
+            ;
+    
+        is $max_inflight, 3, 'no more than 3 workers were run at once',
+    };
+    
+    my $cv = AE::cv;
+    
+    merge_point(
+        inputs    => [ 0..4 ],
+        work      => $work_cb,
+        finished  => sub { $finished_cb->(@_); $cv->send},
+        at_a_time => 3,
+    );
+    
+    $cv->recv;
 
-    # record the maximum number of workers that are in flight
-    $max_inflight = $inflight > $max_inflight ? $inflight : $max_inflight;
+}
 
-    # use a timer to make the work asynchronous
-    push @timers,
-        AnyEvent->timer(
-            after => 0,
-            cb => sub { $inflight--; $cb->( $n * 2 ) },
-        );
-};
+{ # chain
 
-my $finished_cb = sub {
-    my ($outputs, $err) = @_;
+    my @timers;
+    my $cv = AE::cv;
 
-    is_deeply
-        $outputs,
-        [ 0, 2, 4, 6, 8 ],
-        'inputs doubled',
-        ;
+    chain(
+        input    => 2,
+        finished => sub { $cv->send(@_) },
+        steps => [
 
-    is $max_inflight, 3, 'no more than 3 workers were run at once',
-};
+            sub {
+                my ($input, $cb) = @_;
 
-my $cv = AE::cv;
+                push @timers, AnyEvent->timer(
+                    after => 0,
+                    cb    => sub { $cb->($input+1) },
+                );
+            },
 
-merge_point(
-    inputs    => [ 0..4 ],
-    work      => $work_cb,
-    finished  => sub { $finished_cb->(@_); $cv->send},
-    at_a_time => 3,
-);
+            sub {
+                my ($input, $cb) = @_;
+                push @timers, AnyEvent->timer(
+                    after => 0,
+                    cb    => sub { $cb->($input * 2) },
+                );
+            },
 
-$cv->recv;
+        ],
+    );
+
+    my ($res) = $cv->recv;
+    is $res, 6, 'chain result is 6';
+
+}
 
 done_testing;
