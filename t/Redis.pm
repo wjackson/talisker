@@ -3,7 +3,7 @@ use strict;
 use warnings;
 use Test::TCP;
 use Test::More;
-use FindBin;
+use FindBin qw($Bin);
 use File::Which qw(which);
 
 use base qw(Exporter);
@@ -23,7 +23,7 @@ sub test_redis(&;$) {
             my $port = shift;
             rewrite_redis_conf($port);
             open STDOUT, '>', '/dev/null' or die q/Can't redirect STDOUT/;
-            exec "redis-server", "t/redis.conf";
+            exec "redis-server", "$Bin/redis.conf";
         },
         client => sub {
             my $port = shift;
@@ -33,10 +33,10 @@ sub test_redis(&;$) {
 
 sub rewrite_redis_conf {
     my $port = shift;
-    my $dir  = $FindBin::Bin;
+    my $dir  = $Bin;
 
-    open my $in, "<", "t/redis.conf.base" or die $!;
-    open my $out, ">", "t/redis.conf" or die $!;
+    open my $in, "<", "$Bin/redis.conf.base" or die $!;
+    open my $out, ">", "$Bin/redis.conf" or die $!;
 
     while (<$in>) {
         s/__PORT__/$port/;
