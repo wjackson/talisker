@@ -4,7 +4,7 @@ use Moose;
 use namespace::autoclean;
 use AnyEvent::Hiredis;
 use List::MoreUtils qw(pairwise);
-use Talisker::Util qw(merge_point);
+use Talisker::Util qw(merge_point chain);
 
 with 'Talisker::Backend::Role';
 
@@ -15,83 +15,160 @@ sub write {
     my $points = $args{points};
     my $cb     = $args{cb};
 
-    my $redis           = $self->redis;
+    my $target;
 
-    my @point_hset_args;
-    my @stamp_zset_args;
+    chain(
+        finished => $cb,
+        steps    => [
 
-    for my $pt (@{ $points }) {
-
-        my $stamp = $pt->{stamp};
-        my $value = $pt->{value};
-
-        # store the point
-        push @point_hset_args, $stamp, $value;
-
-        # index of the time series' stamps
-        push @stamp_zset_args, $stamp, $stamp;
-    }
-
-    my ($write_tag, $read_meta, $write_pts, $write_stamps);
-
-    # make sure there's a tag entry for $tag
-    $write_tag = sub {
-        $redis->command(
-            ['ZADD', 'tags', 0, $tag], sub {
-                my ($meta, $err) = @_;
-                return $cb->(undef, $err) if $err;
-                $read_meta->();
+            sub {
+                $self->_write_tag_entry(
+                    tag => $tag,
+                    cb  => $_[1],
+                );
             },
-        );
+
+            sub {
+                my (undef, $cb) = @_;
+                $self->_resolve_target(
+                    tag => $tag,
+                    cb  => sub { $target = shift; $cb->() },
+                ),
+            },
+
+            sub {
+                $self->_write_points(
+                    tag    => $target,
+                    points => $points,
+                    cb     => $_[1],
+                );
+            },
+
+            sub {
+                $self->_write_stamps_index(
+                    tag    => $target,
+                    points => $points,
+                    cb     => $_[1],
+                );
+            },
+
+            sub {
+                $self->_update_collections(
+                    tag    => $tag,
+                    points => $points,
+                    cb     => $_[1],
+                );
+            },
+
+        ],
+    );
+
+    return;
+}
+
+sub _write_tag_entry {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
+
+    $self->redis->command(
+        ['ZADD', 'tags', 0, $tag], $cb,
+    );
+
+    return;
+}
+
+sub _resolve_target {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
+
+    $self->redis->command(
+        ['HGETALL', "$tag:meta"], sub {
+            my ($meta, $err) = @_;
+
+            return $cb->(undef, $err) if $err;
+
+            my %meta = @{ $meta };
+
+            my $target
+                = defined $meta{type} && $meta{type} eq 'link'
+                ? $meta{target}
+                : $tag
+                ;
+
+            $cb->($target);
+        },
+    );
+
+    return;
+}
+
+sub _write_points {
+    my ($self, %args) = @_;
+
+    my $tag    = $args{tag};
+    my $points = $args{points};
+    my $cb     = $args{cb};
+
+    my @point_hset_args
+        = map { $_->{stamp}, $_->{value} }
+             @{ $points };
+
+    $self->redis->command(
+        ['HMSET', $tag, @point_hset_args], $cb
+    );
+
+    return;
+}
+
+sub _write_stamps_index {
+    my ($self, %args) = @_;
+
+    my $tag    = $args{tag};
+    my $points = $args{points};
+    my $cb     = $args{cb};
+
+    my @stamp_zset_args
+        = map { $_->{stamp}, $_->{stamp} }
+             @{ $points };
+
+    $self->redis->command(
+        ['ZADD', "$tag:stamps", @stamp_zset_args], $cb
+    );
+
+    return;
+}
+
+sub _update_collections {
+    my ($self, %args) = @_;
+
+    my $tag    = $args{tag};
+    my $points = $args{points};
+    my $cb     = $args{cb};
+
+    my $redis  = $self->redis;
+
+    my $work_cb = sub {
+        my ($point, $cb) = @_;
+
+        # lookup the points collections
+
+        # update the point's collections
+        $cb->();
     };
 
-    # read meta info and switch tag if this is a link
-    $read_meta = sub {
-        $redis->command(
-            ['HGETALL', "$tag:meta"], sub {
-                my ($meta, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                my %meta = @{ $meta };
-
-                if (exists $meta{type} && $meta{type} eq 'link') {
-                    $tag = $meta{target};
-                }
-
-                $write_pts->();
-            },
-        );
+    my $finished_cb = sub {
+        $cb->();
     };
 
-    # write out all the pts
-    $write_pts = sub {
-        $redis->command(
-            ['HMSET', $tag, @point_hset_args], sub {
-                my (undef, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                $write_stamps->();
-            },
-        );
-    };
-
-    # write to the stamps index
-    $write_stamps = sub {
-        $redis->command(
-            ['ZADD', "$tag:stamps", @stamp_zset_args], sub {
-                my (undef, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                $cb->();
-            },
-        );
-    };
-
-    # go
-    $write_tag->();
+    merge_point(
+        inputs   => $points,
+        work     => $work_cb,
+        finished => $finished_cb,
+    );
 
     return;
 }
@@ -100,98 +177,114 @@ sub read {
     my ($self, %args) = @_;
 
     my $tag         = $args{tag};
+    my $start_stamp = $args{start_stamp};
+    my $end_stamp   = $args{end_stamp};
+    my $cb          = $args{cb};
+
+    my $stamps;
+    my $values;
+    my $target;
+
+    chain(
+        steps => [
+
+            # make sure the tag exists
+            sub {
+                my (undef, $inner_cb) = @_;
+                $self->_exists(
+                    tag => $tag,
+                    cb  => sub { shift && return $inner_cb->(); $cb->() },
+                ),
+            },
+
+            # resolve the tag incase it's a link
+            sub {
+                my (undef, $cb) = @_;
+                $self->_resolve_target(
+                    tag => $tag,
+                    cb  => sub { $target = shift; $cb->() },
+                ),
+            },
+
+            # read from the stamps index
+            sub {
+                my (undef, $cb) = @_;
+                $self->_read_stamps(
+                    tag         => $target,
+                    start_stamp => $start_stamp,
+                    end_stamp   => $end_stamp,
+                    cb          => sub { $stamps = shift; $cb->() },
+                ),
+            },
+
+            # read the values by stamp
+            sub {
+                my (undef, $cb) = @_;
+                $self->_read_values(
+                    tag    => $target,
+                    stamps => $stamps,
+                    cb     => sub { $values = shift; $cb->() },
+                ),
+            },
+        ],
+
+        # make the time series and return it
+        finished => sub {
+            my @pts = pairwise { { stamp => $a, value => $b } } @$stamps, @$values;
+
+            $cb->({
+                tag    => $target,
+                points => \@pts,
+            });
+        },
+
+    );
+
+    return;
+}
+
+sub _read_stamps {
+    my ($self, %args) = @_;
+
+    my $tag         = $args{tag};
     my $start_stamp = $args{start_stamp} // '-inf';
     my $end_stamp   = $args{end_stamp}   // '+inf';
+    my $cb          = $args{cb};
+
+    $self->redis->command(
+        ['ZRANGEBYSCORE', "$tag:stamps", $start_stamp, $end_stamp], $cb
+    );
+
+    return;
+}
+
+sub _read_values {
+    my ($self, %args) = @_;
+
+    my $tag    = $args{tag};
+    my $stamps = $args{stamps};
+    my $cb     = $args{cb};
+
+    $self->redis->command(
+        ['HMGET', $tag, @{ $stamps } ], $cb,
+    );
+
+    return;
+}
+
+sub _exists {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
     my $cb  = $args{cb};
 
-    my $redis        = $self->redis;
-    my $pts          = [];
-    my $pts_read_cnt = 0;
-    my $pts_read_exp;
-
-    my ($exists_cb, $meta_cb, $stamps_cb, $mtimes_cb, $pts_cb);
-
-    my @stamps;
-    my @values;
-
-    # does the ts exist?
-    $redis->command(
+    $self->redis->command(
         ['ZRANK', 'tags', $tag],
         sub {
             my ($rank, $err) = @_;
-
-            return $cb->(undef, $err) if $err;
-            return $cb->()            if !defined $rank;
-
-            $exists_cb->();
+            return $cb->(defined $rank);
         },
     );
-
-    # get the ts' meta data
-    $exists_cb = sub {
-        $redis->command(
-            ['HGETALL', "$tag:meta"],
-            sub {
-                my ($meta, $err) = @_;
-
-                $cb->(undef, $err) if $err;
-
-                return $meta_cb->() if !@{ $meta };
-
-                my %meta = @{ $meta };
-
-                if (exists $meta{type} && $meta{type} eq 'link') {
-                    $tag = $meta{target};
-                }
-
-                $meta_cb->();
-            },
-        );
-    };
-
-    # read the ts' stamps index
-    $meta_cb = sub {
-        $redis->command(
-            ['ZRANGEBYSCORE', "$tag:stamps", $start_stamp, $end_stamp],
-            sub {
-                my ($stamps, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                @stamps = @{ $stamps };
-
-                return $cb->({ tag => $tag, points => [] })
-                    if !@stamps;
-
-                $stamps_cb->();
-            },
-        );
-    };
-
-    # read the ts' points
-    $stamps_cb = sub {
-        $redis->command(
-            ['HMGET', $tag, @stamps ],
-            sub {
-                my ($values, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                @values = @{ $values };
-                $pts_cb->();
-            },
-        );
-    };
-
-    # construct a ts data structure
-    $pts_cb = sub {
-        my @pts = pairwise { { stamp => $a, value => $b } } @stamps, @values;
-
-        $cb->({
-            tag    => $tag,
-            points => \@pts,
-        });
-    };
 
     return;
 }
@@ -230,6 +323,7 @@ sub _delete_points {
         push @stamp_zdel_args, $stamp;
     }
 
+    # TODO: merge_point these
     $redis->command(
         ['HDEL', $tag, @point_hdel_args ],
         sub { $pt_deleted_cb->(@_) },
