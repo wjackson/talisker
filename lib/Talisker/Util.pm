@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use feature 'switch';
 use Carp;
+use Scalar::Util qw(weaken);
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = qw(merge_point chain);
@@ -82,6 +83,7 @@ sub _map_merge_point {
     };
 
     $cb->();
+    weaken $cb;
 
     return;
 }
@@ -149,6 +151,7 @@ sub _mesh_merge_point {
     };
 
     $cb->();
+    weaken $cb;
 
     return;
 }
@@ -179,6 +182,7 @@ sub chain {
     };
 
     $cb->($input);
+    weaken $cb;
 
     return;
 }
