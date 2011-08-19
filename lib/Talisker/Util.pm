@@ -46,6 +46,7 @@ sub _map_merge_point {
     my $cb_count    = 0;
     my $input_index = 0;
     my $outputs     = [];
+    my $any_err     = 0;
 
     my $cb; $cb = sub {
 
@@ -64,12 +65,16 @@ sub _map_merge_point {
                 $cb_count++;
                 $inflight--;
 
-                return $finished_cb->(undef, $err) if $err;
+                return if $any_err;
+
+                if ($err) {
+                    $any_err = 1;
+                    return $finished_cb->(undef, $err);
+                }
 
                 $outputs->[$index] = $output;
 
-                return $finished_cb->($outputs)
-                    if $cb_count == @{ $inputs };
+                return $finished_cb->($outputs) if $cb_count == @{ $inputs };
 
                 $cb->();
             });
@@ -107,6 +112,7 @@ sub _mesh_merge_point {
     my $cb_count = 0;
     my $work_idx = 0;
     my $outputs  = [];
+    my $any_err  = 0;
 
     my $cb; $cb = sub {
 
@@ -126,12 +132,16 @@ sub _mesh_merge_point {
                 $cb_count++;
                 $inflight--;
 
-                return $finished_cb->(undef, $err) if $err;
+                return if $any_err;
+
+                if ($err) {
+                    $any_err = 1;
+                    $finished_cb->(undef, $err);
+                }
 
                 $outputs->[$index] = $output;
 
-                return $finished_cb->($outputs)
-                    if $cb_count == @{ $work_cbs };
+                return $finished_cb->($outputs) if $cb_count == @{ $work_cbs };
 
                 $cb->();
             });
