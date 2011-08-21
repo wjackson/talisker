@@ -3,6 +3,7 @@ package Talisker;
 
 use Moose;
 use namespace::autoclean;
+use Talisker::Util qw(chain);
 
 with 'Talisker::RedisRole';
 
@@ -35,42 +36,32 @@ sub link {
     my $target = $args{target};
     my $cb     = $args{cb};
 
-    my ($set_tags_entry, $set_type, $set_target);
+    chain(
+        steps => [
 
-    $set_tags_entry = sub {
-        $self->redis->command(
-            ['ZADD', 'tags', 0, $tag], sub {
-                my (undef, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-                return $set_type->();
+            # set tags entry
+            sub {
+                $self->redis->command(
+                    ['ZADD', 'tags', 0, $tag], $_[1]
+                )
             },
-        );
-    };
 
-    $set_type = sub {
-        $self->redis->command(
-            [ 'HSET', "$tag:meta", 'type', 'link' ], sub {
-                my (undef, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-                return $set_target->();
+            # set type to link
+            sub {
+                $self->redis->command(
+                    ['HSET', "$tag:meta", 'type', 'link'], $_[1]
+                );
             },
-        );
-    };
 
-    $set_target = sub {
-        $self->redis->command(
-            [ 'HSET', "$tag:meta", 'target', $target ], sub {
-                my (undef, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-                return $cb->();
+            # set link target
+            sub {
+                $self->redis->command(
+                    ['HSET', "$tag:meta", 'target', $target], $_[1]
+                );
             },
-        );
-    };
-
-    $set_tags_entry->();
+        ],
+        finished => sub { $cb->(@_) },
+    );
 
     return;
 }
@@ -81,27 +72,46 @@ sub resolve_link {
     my $tag    = $args{tag};
     my $cb     = $args{cb};
 
-    my ($read_tag_entry, $read_meta);
+    chain(
+        steps => [
 
-    $read_tag_entry = sub {
-        $self->redis->command(
-            ['ZRANK', 'tags', $tag], sub {
-                my ($rank, $err) = @_;
+            # read tag entry
+            sub {
+                my (undef, $inner_cb) = @_;
+                $self->redis->command(
+                    ['ZRANK', 'tags', $tag], sub {
+                        my ($rank, $err) = @_;
 
-                return $cb->(undef, $err) if $err;
-                return $cb->()            if !defined $rank;
-
-                return $read_meta->();
+                        return $inner_cb->(undef, $err) if $err;
+                        return $cb->()            if !defined $rank;
+                        return $inner_cb->();
+                    },
+                );
             },
-        );
-    };
 
-    $read_meta = sub {
-        $self->redis->command(
-            [ 'HGETALL', "$tag:meta" ], sub {
-                my ($meta, $err) = @_;
+            # read target from meta
+            sub {
+                my (undef, $inner_cb) = @_;
 
-                return $cb->(undef, $err) if $err;
+                $self->ts_meta(tag => $tag, cb => sub {
+                    my ($meta, $err) = @_;
+
+                    return $inner_cb->(undef, $err) if $err;
+
+                    # error if tag isn't a link
+                    return $inner_cb->(undef, qq/$tag isn't a link/)
+                        if !defined $meta->{type} || $meta->{type} ne 'link';
+
+                    return $inner_cb->($meta->{target});
+                });
+            },
+
+        ],
+        finished => $cb
+    );
+
+    return;
+}
 
                 my %meta = @{ $meta // [] };
 
