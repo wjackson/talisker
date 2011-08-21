@@ -113,17 +113,20 @@ sub resolve_link {
     return;
 }
 
-                my %meta = @{ $meta // [] };
+sub ts_meta {
+    my ($self, %args) = @_;
 
-                return $cb->(undef, qq/$tag isn't a link/)
-                    if defined $meta{type} && $meta{type} ne 'link';
+    my $tag    = $args{tag};
+    my $cb     = $args{cb};
 
-                return $cb->($meta{target});
-            },
-        );
-    };
+    $self->redis->command(
+        ['HGETALL', "$tag:meta"], sub {
+            my ($meta, $err) = @_;
 
-    $read_tag_entry->();
+            return $cb->(undef, $err) if $err;
+            return $cb->({ @{ $meta // [] } });
+        },
+    );
 
     return;
 }

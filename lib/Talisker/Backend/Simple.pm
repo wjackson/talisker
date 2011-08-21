@@ -5,6 +5,7 @@ use namespace::autoclean;
 use AnyEvent::Hiredis;
 use List::MoreUtils qw(pairwise);
 use Talisker::Util qw(merge_point chain);
+use Time::HiRes;
 
 with 'Talisker::Backend::Role';
 
@@ -46,6 +47,14 @@ sub write {
 
             sub {
                 $self->_write_stamps_index(
+                    tag    => $target,
+                    points => $points,
+                    cb     => $_[1],
+                );
+            },
+
+            sub {
+                $self->_update_mtime (
                     tag    => $target,
                     points => $points,
                     cb     => $_[1],
@@ -137,6 +146,19 @@ sub _write_stamps_index {
 
     $self->redis->command(
         ['ZADD', "$tag:stamps", @stamp_zset_args], $cb
+    );
+
+    return;
+}
+
+sub _update_mtime {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
+
+    $self->redis->command(
+        ['HSET', "$tag:meta", 'mtime', Time::HiRes::time ], $cb
     );
 
     return;
