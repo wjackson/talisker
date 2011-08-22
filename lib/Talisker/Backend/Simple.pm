@@ -424,42 +424,6 @@ sub _delete_ts {
     return;
 }
 
-sub tags {
-    my ($self, %args) = @_;
-
-    my $start_idx = $args{start_idx} // 0;
-    my $end_idx   = $args{end_idx}   // -1;
-    my $cb        = $args{cb};
-
-    $self->redis->command(
-        ['ZRANGE', ':tags', $start_idx, $end_idx], sub {
-            my ($tags, $err) = @_;
-
-            return $cb->(undef, $err) if $err;
-            return $cb->($tags);
-        },
-    );
-
-    return;
-}
-
-sub count {
-    my ($self, %args) = @_;
-
-    my $cb = $args{cb};
-
-    $self->redis->command(
-        ['ZCARD', ':tags'], sub {
-            my ($count, $err) = @_;
-
-            return $cb->(undef, $err) if $err;
-            return $cb->($count);
-        },
-    );
-
-    return;
-}
-
 sub compact {
 }
 
