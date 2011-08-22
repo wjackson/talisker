@@ -22,7 +22,7 @@ has backend => (
     does       => 'Talisker::Backend::Role',
     lazy_build => 1,
     handles    => [ qw(read write delete compact tags count ts_meta link
-                       resolve_link count read_fields write_fields) ],
+                       resolve_link count read_fields write_fields exists) ],
 );
 
 has db => (

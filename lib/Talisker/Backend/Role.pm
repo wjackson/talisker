@@ -109,6 +109,22 @@ sub link {
     return;
 }
 
+sub exists {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
+
+    $self->redis->command(
+        ['ZRANK', ':tags', $tag], sub {
+            my ($rank, $err) = @_;
+
+            return $cb->(undef, $err) if $err;
+            return $cb->(defined $rank);
+        },
+    );
+}
+
 sub resolve_link {
     my ($self, %args) = @_;
 

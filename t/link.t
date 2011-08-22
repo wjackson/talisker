@@ -33,7 +33,7 @@ test_redis {
             sub {
                 my (undef, $cb) = @_;
 
-                $th = $talisker->mkdb(
+                $th = $talisker->create(
                     fields => [
                         { name => 'value' },
                     ],

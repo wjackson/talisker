@@ -69,7 +69,7 @@ test_redis {
     {
         my $cv = AE::cv;
 
-        $talisker->mkdb(
+        $talisker->create(
             fields => [
                 { name => 'city',        sort => 'alpha'   },
                 { name => 'temperature', sort => 'numeric' },

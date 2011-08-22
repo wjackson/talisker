@@ -14,7 +14,7 @@ test_redis {
     { # make a new talisker db
         my $cv = AE::cv;
 
-        $talisker->mkdb(
+        $talisker->create(
             fields => [
                 { name => 'value' },
             ],

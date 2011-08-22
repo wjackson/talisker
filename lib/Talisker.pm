@@ -8,7 +8,7 @@ use Talisker::Handle;
 with 'Talisker::RedisRole';
 
 # create a talisker db and return a handle
-sub mkdb {
+sub create {
     my ($self, %args) = @_;
 
     my $db     = $args{db};
@@ -42,7 +42,7 @@ sub handle {
 }
 
 sub delete {
-    # delete a db
+    # TODO: delete a db
 }
 
 __PACKAGE__->meta->make_immutable;
