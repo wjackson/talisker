@@ -2,8 +2,7 @@ package Talisker::Collection;
 
 use Moose;
 use namespace::autoclean;
-use JSON;
-use Talisker::Util qw(merge_point);
+use Talisker::Util qw(merge_point chain);
 use List::Util qw(sum);
 
 has id => (
@@ -12,14 +11,9 @@ has id => (
     required => 1,
 );
 
-has indexes => (
-    is  => 'ro',
-    isa => 'ArrayRef',
-);
-
-has talisker => (
-    is       => 'ro',
-    isa      => 'Talisker',
+has th => (
+    accessor => 'th',
+    isa      => 'Talisker::Handle',
     required => 1,
     handles  => [ 'redis' ],
 );
@@ -30,125 +24,155 @@ sub write {
     my $pts = $args{points};
     my $cb  = $args{cb};
 
-    $self->_write_index_meta(sub { # write index data if we have it
+    chain(
+        steps => [
 
-        $self->_read_index_meta(sub { # read index data if we don't have it
+            # write collection meta
+            sub {
+                $self->_write_collection_meta(
+                    cb => $_[1],
+                );
+            },
 
-            # write each pt
-            my $work_cb = sub {
-                my ( $pt, $cb ) = @_;
+            # write points
+            sub {
+                $self->_write_points(
+                    points => $pts,
+                    cb => $_[1],
+                );
+            },
 
-                $self->_write_pt( $pt, $cb );
-            };
-
-            merge_point(
-                inputs   => $pts,
-                work     => $work_cb,
-                finished => $cb,
-            );
-
-        });
-    });
+        ],
+        finished => $cb,
+    );
 
     return;
 }
 
-sub _write_index_meta {
-    my ($self, $cb) = @_;
+sub _write_collection_meta {
+    my ($self, %args) = @_;
 
-    my $redis = $self->redis;
-    my $id    = $self->id;
+    my $cb  = $args{cb};
 
-    return $cb->() if $self->indexes;
+    # collection entry
+    $self->redis->command(['ZADD', ':collections', 0, $self->id], $cb);
 
-    $redis->command(
-        ['SET', "$id:index_meta", encode_json $self->indexes], sub {
-            my (undef, $err) = @_;
+    # collection meta
 
-            return $cb->(undef, $err) if $err;
-            return $cb->();
-        }
-    );
+    return;
 }
 
-sub _read_index_meta {
-    my ($self, $cb) = @_;
+sub _write_points {
+    my ($self, %args) = @_;
 
-    my $redis = $self->redis;
-    my $id    = $self->id;
+    my $pts = $args{points};
+    my $cb  = $args{cb};
 
-    return $cb->() if $self->indexes;
+    chain(
+        steps => [
 
-    $redis->command(
-        ['GET', "$id:index_meta"], sub {
-            my ($indexes_json, $err) = @_;
+            # read fields
+            sub {
+                $self->th->read_fields(
+                    cb => $_[1],
+                );
+            },
 
-            return $cb->(undef, $err) if $err;
+            # write points
+            sub {
+                my ($fields, $cb) = @_;
 
-            $self->indexes(decode_json($indexes_json));
+                my $work_cb = sub {
+                    my ($pt, $cb) = @_;
 
-            return $cb->();
-        }
+                    $self->_write_pt(
+                        point  => $pt,
+                        fields => $fields,
+                        cb     => $cb,
+                    );
+                };
+
+                merge_point(
+                    inputs   => $pts,
+                    work     => $work_cb,
+                    finished => $cb,
+                );
+            },
+        ],
+        finished => $cb,
     );
 }
 
 sub _write_pt {
-    my ($self, $pt, $cb) = @_;
+    my ($self, %args) = @_;
+
+    my $pt     = $args{point};
+    my $fields = $args{fields};
+    my $cb     = $args{cb};
 
     my $redis = $self->redis;
     my $id    = $self->id;
     my $pt_id = "$pt->{tag}:$pt->{stamp}";
 
-    my $cmds_run = 0;
-    my $cmds_ret = 0;
+    chain(
+        steps => [
 
-    my $cb_wrapper = sub {
-        $cmds_ret++;
-        my (undef, $err) = @_;
+            # read the point
+            sub {
+                my (undef, $cb) = @_;
 
-        return $cb->(undef, $err) if $err;
-        return $cb->()            if $cmds_run == $cmds_ret;
-    };
+                $self->th->read(
+                    tag         => $pt->{tag},
+                    start_stamp => $pt->{stamp},
+                    end_stamp   => $pt->{stamp},
+                    cb          => sub {
+                        my ($ts, $err) = @_;
 
-    # always index by stamp
-    $cmds_run++;
-    $redis->command(
-        [ 'ZADD', "$id:idx:stamp", $pt->{stamp}, $pt_id ], $cb_wrapper
-    );
+                        return $cb->(undef, $err) if $err;
 
-    for my $index (@{ $self->indexes }) {
+                        my $read_pt = $ts->{points}->[0];
 
-        my $field = $index->{field};
-        my $sort  = $index->{sort};
-
-        $cmds_run++;
-        $self->talisker->read(
-            tag         => $pt->{tag},
-            start_stamp => $pt->{stamp},
-            end_stamp   => $pt->{stamp},
-            cb          => sub {
-                $cmds_ret++;
-                my ($ts, $err) = @_;
-
-                return $cb->(undef, $err) if $err;
-
-                my $value = decode_json( $ts->{points}->[0]->{value} )->{$field};
-
-                my $score = $self->_score($value, $sort);
-
-                $cmds_run++;
-                $redis->command(
-                    [ 'ZADD', "$id:idx:$field", $score, $pt_id ], $cb_wrapper
+                        return $cb->($read_pt);
+                    },
                 );
             },
-        );
-    }
+
+            # index the point in the collection
+            sub {
+                my ($read_pt, $cb) = @_;
+
+                my $work_cb = sub {
+                    my ($field, $cb) = @_;
+
+                    my $fname = $field->{name};
+                    my $fsort = $field->{sort};
+
+                    my $value = $read_pt->{$fname};
+                    my $score = $self->_score($value, $fsort);
+
+                    $redis->command(
+                        [ 'ZADD', "$id:idx:$fname", $score, $pt_id ], $cb
+                    );
+                };
+
+                merge_point(
+                    inputs  => [ { name => 'stamp' }, @{ $fields } ],
+                    work    => $work_cb,
+                    finished => $cb,
+                );
+            },
+
+        ],
+        finished => $cb,
+    );
 
     return;
 }
 
 sub _score {
     my ($self, $value, $sort) = @_;
+
+    $sort //= 'numeric';
 
     return $value if $sort eq 'numeric';
 
@@ -174,7 +198,7 @@ sub read {
     my $stop_idx  = $args{stop_idx}  // -1;
     my $cb        = $args{cb};
 
-    my $talisker  = $self->talisker;
+    my $th        = $self->th;
     my $redis     = $self->redis;
     my $id        = $self->id;
 
@@ -194,7 +218,7 @@ sub read {
                 my $stamp = pop @pt_id;
                 my $tag   = join ':', @pt_id;
 
-                $talisker->read(
+                $th->read(
                     tag         => $tag,
                     start_stamp => $stamp,
                     end_stamp   => $stamp,
@@ -203,7 +227,7 @@ sub read {
 
                         return $cb->(undef, $err) if $err;
 
-                        my $pt = decode_json $ts->{points}->[0]->{value};
+                        my $pt = $ts->{points}->[0];
 
                         push @{ $pts }, $pt;
 

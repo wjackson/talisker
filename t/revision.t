@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-use Test::More;
+use Test::More skip_all => 'Revision back-end is temporarily unsupported';
 use AE;
 
 use t::Redis;
@@ -16,7 +16,7 @@ test_redis {
     {
         my $cv = AE::cv;
         $talisker->write(
-            tag    => 'BAC',
+            tag    => 'GRR',
             points => [
                 { stamp  => 20100405, value => 1.1,  mtime => 1234567890},
                 { stamp  => 20100406, value => 1.2,  mtime => 1234567890},
@@ -32,7 +32,7 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts1; $talisker->read(
-            tag => 'BAC',
+            tag => 'GRR',
             cb  => sub { $read_ts1 = shift; $cv->send },
         );
         $cv->recv;
@@ -40,7 +40,7 @@ test_redis {
         is_deeply
             $read_ts1,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1,  mtime => 1234567890 },
                     { stamp => 20100406, value => 1.21, mtime => 1234567892 },
@@ -54,7 +54,7 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts; $talisker->read(
-            tag   => 'BAC',
+            tag   => 'GRR',
             as_of => 1234567891,
             cb    => sub { $read_ts = shift; $cv->send },
         );
@@ -63,7 +63,7 @@ test_redis {
         is_deeply
             $read_ts,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1, mtime => 1234567890 },
                     { stamp => 20100406, value => 1.2, mtime => 1234567890 },
@@ -77,7 +77,7 @@ test_redis {
     {
         my $cv = AE::cv;
         my $read_ts; $talisker->read(
-            tag   => 'BAC',
+            tag   => 'GRR',
             as_of => 1234567889,
             cb    => sub { $read_ts = shift; $cv->send },
         );
@@ -86,7 +86,7 @@ test_redis {
         is_deeply
             $read_ts,
             {
-                tag    => 'BAC',
+                tag    => 'GRR',
                 points => [],
             },
             'read ts with early as_of'

@@ -12,51 +12,28 @@ use ok 'Talisker';
 test_redis {
 
     my $port = shift // 6379;
-    my $talisker = Talisker->new(backend_type => 'Simple', port => $port);
+    my $talisker = Talisker->new(port => $port);
 
     isa_ok $talisker, 'Talisker';
 
-    my $t1 = Time::HiRes::time;
-
-    my $TS = {
-        tag    => 'foo',
-        points => [
-            { stamp  => 20100405, value => 1.21 },
-            { stamp  => 20100406, value => 1.21 },
-            { stamp  => 20100407, value => 1.3  },
-        ],
-    };
-
     my $cv = AE::cv;
 
-    chain(
-        steps => [
-
-            sub {
-                $talisker->write(
-                    %{ $TS },
-                    cb => $_[1],
-                );
-            },
-
-            sub {
-                $talisker->ts_meta(
-                    tag => 'foo',
-                    cb => $_[1],
-                );
-            },
-
+    $talisker->mkdb(
+        db     => 7,
+        fields => [
+            { name => 'value' },
         ],
-
-        finished => sub { $cv->send(@_) },
+        cb => sub { $cv->send(@_) },
     );
 
-    my ($ts_meta, $err) = $cv->recv;
-    my $t2 = Time::HiRes::time;
+    my ($th, $err) = $cv->recv;
 
     confess $err if $err;
 
-    ok $ts_meta->{mtime} >= $t1 && $ts_meta->{mtime} <= $t2, 'ts_meta mtime looks right';
+    isa_ok $th, 'Talisker::Handle';
+
+    isa_ok $talisker->handle(db => 7), 'Talisker::Handle';
+
 };
 
 done_testing;

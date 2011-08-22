@@ -1,5 +1,7 @@
 package Talisker::Backend::Revision;
 
+# TODO: update to reflect recent refactoring
+
 use Moose;
 use namespace::autoclean;
 use Readonly;

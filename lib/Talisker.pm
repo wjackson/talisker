@@ -3,132 +3,46 @@ package Talisker;
 
 use Moose;
 use namespace::autoclean;
-use Talisker::Util qw(chain);
+use Talisker::Handle;
 
 with 'Talisker::RedisRole';
 
-has backend_type => (
-    is      => 'ro',
-    isa     => 'Str',
-    default => 'Simple',
-);
-
-has backend => (
-    accessor   => 'backend',
-    does       => 'Talisker::Backend::Role',
-    lazy_build => 1,
-    handles    => [ qw(read write delete compact tags count) ],
-);
-
-sub _build_backend {
-    my ($self) = @_;
-
-    my $backend_class = 'Talisker::Backend::' . $self->backend_type;
-    Class::MOP::load_class($backend_class);
-
-    return $backend_class->new(redis => $self->redis);
-}
-
-sub link {
+# create a talisker db and return a handle
+sub mkdb {
     my ($self, %args) = @_;
 
-    my $tag    = $args{tag};
-    my $target = $args{target};
+    my $db     = $args{db};
+    my $fields = $args{fields};
     my $cb     = $args{cb};
 
-    chain(
-        steps => [
+    my $t_handle = $self->handle(redis => $self->redis, db => $db);
 
-            # set tags entry
-            sub {
-                $self->redis->command(
-                    ['ZADD', 'tags', 0, $tag], $_[1]
-                )
-            },
-
-            # set type to link
-            sub {
-                $self->redis->command(
-                    ['HSET', "$tag:meta", 'type', 'link'], $_[1]
-                );
-            },
-
-            # set link target
-            sub {
-                $self->redis->command(
-                    ['HSET', "$tag:meta", 'target', $target], $_[1]
-                );
-            },
-        ],
-        finished => sub { $cb->(@_) },
-    );
-
-    return;
-}
-
-sub resolve_link {
-    my ($self, %args) = @_;
-
-    my $tag    = $args{tag};
-    my $cb     = $args{cb};
-
-    chain(
-        steps => [
-
-            # read tag entry
-            sub {
-                my (undef, $inner_cb) = @_;
-                $self->redis->command(
-                    ['ZRANK', 'tags', $tag], sub {
-                        my ($rank, $err) = @_;
-
-                        return $inner_cb->(undef, $err) if $err;
-                        return $cb->()            if !defined $rank;
-                        return $inner_cb->();
-                    },
-                );
-            },
-
-            # read target from meta
-            sub {
-                my (undef, $inner_cb) = @_;
-
-                $self->ts_meta(tag => $tag, cb => sub {
-                    my ($meta, $err) = @_;
-
-                    return $inner_cb->(undef, $err) if $err;
-
-                    # error if tag isn't a link
-                    return $inner_cb->(undef, qq/$tag isn't a link/)
-                        if !defined $meta->{type} || $meta->{type} ne 'link';
-
-                    return $inner_cb->($meta->{target});
-                });
-            },
-
-        ],
-        finished => $cb
-    );
-
-    return;
-}
-
-sub ts_meta {
-    my ($self, %args) = @_;
-
-    my $tag    = $args{tag};
-    my $cb     = $args{cb};
-
-    $self->redis->command(
-        ['HGETALL', "$tag:meta"], sub {
-            my ($meta, $err) = @_;
+    # write out fields
+    $t_handle->write_fields(
+        fields => $fields,
+        cb     => sub {
+            my (undef, $err) = @_;
 
             return $cb->(undef, $err) if $err;
-            return $cb->({ @{ $meta // [] } });
+
+            $cb->($t_handle);
         },
     );
 
     return;
+}
+
+# do we really want to block here?
+sub handle {
+    my ($self, %args) = @_;
+
+    my $db = $args{db} // $self->default_db;
+
+    return Talisker::Handle->new(redis => $self->redis, db => $db);
+}
+
+sub delete {
+    # delete a db
 }
 
 __PACKAGE__->meta->make_immutable;
