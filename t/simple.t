@@ -8,14 +8,33 @@ use ok 'Talisker';
 
 test_redis {
     my $port = shift;
-    my $talisker = Talisker->new(backend_type => 'Simple', port => $port);
-
+    my $talisker = Talisker->new(port => $port);
     isa_ok $talisker, 'Talisker';
 
-    {
+    { # make a new talisker db
         my $cv = AE::cv;
-        $talisker->write(
-            tag    => 'BAC',
+
+        $talisker->create(
+            fields => [
+                { name => 'value' },
+            ],
+            cb => sub { $cv->send(@_) },
+        );
+
+        my ($t_handle, $err) = $cv->recv;
+
+        confess $err if $err;
+
+        isa_ok $t_handle, 'Talisker::Handle';
+    }
+
+    { # write a time series to the db
+        my $th = $talisker->handle;
+        my $t1 = Time::HiRes::time;
+
+        my $cv = AE::cv;
+        $th->write(
+            tag    => 'GRR',
             points => [
                 { stamp  => 20100405, value => 1.1  },
                 { stamp  => 20100406, value => 1.21 },
@@ -24,32 +43,47 @@ test_redis {
             cb => sub { $cv->send },
         );
         $cv->recv;
+
+        $cv = AE::cv;
+        $th->ts_meta( tag => 'GRR', cb  => sub { $cv->send(@_) });
+        my ($ts_meta, $err) = $cv->recv;
+
+        confess $err if $err;
+
+        my $t2 = Time::HiRes::time;
+
+        ok $ts_meta->{mtime} >= $t1 && $ts_meta->{mtime} <= $t2, 'ts_meta mtime looks right';
     }
 
-    {
-        my $cv = AE::cv;
-        my $tags;
-        $talisker->tags(cb => sub {
-            $tags = shift;
-            $cv->send;
-        });
-        $cv->recv;
+    { # read tags
+        my $th = $talisker->handle;
 
-        is_deeply $tags, ['BAC'], 'tags';
+        my $cv = AE::cv;
+
+        $th->tags(cb => sub { $cv->send(@_) });
+        my ($tags, $err) = $cv->recv;
+
+        confess $err if $err;
+
+        is_deeply $tags, ['GRR'], 'tags';
     }
 
-    {
+    { # read written time series
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag => 'BAC',
-            cb  => sub { $read_ts = shift; $cv->send },
+        $th->read(
+            tag => 'GRR',
+            cb  => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is_deeply
             $read_ts,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1  },
                     { stamp => 20100406, value => 1.21 },
@@ -60,20 +94,24 @@ test_redis {
             ;
     }
 
-    {
+    { # read with stamp range
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag         => 'BAC',
+        $th->read(
+            tag         => 'GRR',
             start_stamp => 20100405,
             end_stamp   => 20100405,
-            cb          => sub { $read_ts = shift; $cv->send },
+            cb          => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is_deeply
             $read_ts,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1  },
                 ],
@@ -82,19 +120,23 @@ test_redis {
             ;
     }
 
-    {
+    { # read with as_of
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag   => 'BAC',
+        $th->read(
+            tag   => 'GRR',
             as_of => 1234567891,
-            cb    => sub { $read_ts = shift; $cv->send },
+            cb    => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is_deeply
             $read_ts,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1  },
                     { stamp => 20100406, value => 1.21 },
@@ -105,19 +147,23 @@ test_redis {
             ;
     }
 
-    {
+    { # read with as_of again
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag   => 'BAC',
+        $th->read(
+            tag   => 'GRR',
             as_of => 1234567889,
-            cb    => sub { $read_ts = shift; $cv->send },
+            cb    => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is_deeply
             $read_ts,
             {
-                tag    => 'BAC',
+                tag    => 'GRR',
                 points => [
                     { stamp => 20100405, value => 1.1  },
                     { stamp => 20100406, value => 1.21 },
@@ -128,28 +174,36 @@ test_redis {
             ;
     }
 
-    {
+    { # delete point
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        $talisker->delete(
-            tag    => 'BAC',
+        $th->delete(
+            tag    => 'GRR',
             stamps => [ 20100405 ],
-            cb     => sub { $cv->send },
+            cb     => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my (undef, $err) = $cv->recv;
+
+        confess $err if $err;
     }
 
-    {
+    { # verify point delete
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag => 'BAC',
-            cb  => sub { $read_ts = shift; $cv->send },
+        $th->read(
+            tag => 'GRR',
+            cb  => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is_deeply
             $read_ts,
             {
-                tag => 'BAC',
+                tag => 'GRR',
                 points => [
                     { stamp => 20100406, value => 1.21 },
                     { stamp => 20100407, value => 1.3  },
@@ -159,36 +213,49 @@ test_redis {
             ;
     }
 
-    {
+    { # count the time series
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $count;
-        my $read_ts; $talisker->count(
-            cb => sub { $count = shift; $cv->send },
+        $th->count(
+            cb => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($count, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is $count, 1, 'count is 1';
     }
 
-    {
+    { # delete time series
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        $talisker->delete(
-            tag => 'BAC',
-            cb  => sub { $cv->send },
+        $th->delete(
+            tag => 'GRR',
+            cb  => sub { $cv->send(@_) },
         );
-        $cv->recv;
+
+        my (undef, $err) = $cv->recv;
+
+        confess $err if $err;
     }
 
-    {
+    { # verify time series delete
+        my $th = $talisker->handle;
+
         my $cv = AE::cv;
-        my $read_ts; $talisker->read(
-            tag => 'BAC',
-            cb  => sub { $read_ts = shift; $cv->send },
+        $th->read(
+            tag => 'GRR',
+            cb  => sub { $cv->send(@_) },
         );
-        $cv->recv;
+        my ($read_ts, $err) = $cv->recv;
+
+        confess $err if $err;
 
         is $read_ts, undef, 'time series successfully deleted';
     }
+
 };
 
 done_testing;

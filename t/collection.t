@@ -3,7 +3,6 @@ use warnings;
 use Test::More;
 use AnyEvent;
 use Carp;
-use JSON;
 
 use t::Redis;
 use Talisker;
@@ -11,6 +10,7 @@ use ok 'Talisker::Collection';
 
 my $all_selected = [
     {
+        stamp       => '20100405',
         city        => 'Chicago',
         date        => '04/05/2010',
         temperature => '40.1',
@@ -18,6 +18,7 @@ my $all_selected = [
         description => 'Cloudy',
     },
     {
+        stamp       => '20100406',
         city        => 'Chicago',
         date        => '04/06/2010',
         temperature => '42.3',
@@ -25,6 +26,7 @@ my $all_selected = [
         description => 'Sunny',
     },
     {
+        stamp       => '20100407',
         city        => 'Chicago',
         date        => '04/07/2010',
         temperature => '48.2',
@@ -33,6 +35,7 @@ my $all_selected = [
     },
 
     {
+        stamp       => '20100406',
         city        => 'Portland',
         date        => '04/06/2010',
         temperature => '72.3',
@@ -40,6 +43,7 @@ my $all_selected = [
         description => 'Rainy',
     },
     {
+        stamp       => '20100407',
         city        => 'Portland',
         date        => '04/07/2010',
         temperature => '68.2',
@@ -47,6 +51,7 @@ my $all_selected = [
         description => 'Sunny',
     },
     {
+        stamp       => '20100410',
         city        => 'Portland',
         date        => '04/10/2010',
         temperature => '66.2',
@@ -58,10 +63,29 @@ my $all_selected = [
 test_redis {
     my $port = shift // 6379;
 
-    my $talisker = Talisker->new(
-        port         => $port,
-        backend_type => 'Simple',
-    );
+    my $talisker = Talisker->new(port => $port);
+    my $th;
+
+    {
+        my $cv = AE::cv;
+
+        $talisker->create(
+            fields => [
+                { name => 'city',        sort => 'alpha'   },
+                { name => 'temperature', sort => 'numeric' },
+                { name => 'humidity',    sort => 'numeric' },
+                { name => 'description', sort => 'alpha'   },
+            ],
+            cb => sub { $cv->send(@_) },
+        );
+
+        my $err;
+        ($th, $err) = $cv->recv;
+
+        confess $err if $err;
+
+        isa_ok $th, 'Talisker::Handle';
+    }
 
     { # setup the talisker db
 
@@ -70,48 +94,40 @@ test_redis {
         my $cmds_ret = 0;
 
         $cmds_run++;
-        $talisker->write(
+        $th->write(
             tag    => 'chicago',
             points => [
                 {
-                    stamp => 20100405,
-                    value => encode_json {
-                        city        => 'Chicago',
-                        date        => '04/05/2010',
-                        temperature => '40.1',
-                        humidity    => '20',
-                        description => 'Cloudy',
-                    },
+                    stamp       => 20100405,
+                    city        => 'Chicago',
+                    date        => '04/05/2010',
+                    temperature => '40.1',
+                    humidity    => '20',
+                    description => 'Cloudy',
                 },
                 {
-                    stamp => 20100406,
-                    value => encode_json {
-                        city        => 'Chicago',
-                        date        => '04/06/2010',
-                        temperature => '42.3',
-                        humidity    => '30',
-                        description => 'Sunny',
-                    },
+                    stamp       => 20100406,
+                    city        => 'Chicago',
+                    date        => '04/06/2010',
+                    temperature => '42.3',
+                    humidity    => '30',
+                    description => 'Sunny',
                 },
                 {
-                    stamp => 20100407,
-                    value => encode_json {
-                        city        => 'Chicago',
-                        date        => '04/07/2010',
-                        temperature => '48.2',
-                        humidity    => '40',
-                        description => 'Overcast',
-                    },
+                    stamp       => 20100407,
+                    city        => 'Chicago',
+                    date        => '04/07/2010',
+                    temperature => '48.2',
+                    humidity    => '40',
+                    description => 'Overcast',
                 },
                 {
-                    stamp => 20100408,
-                    value => encode_json {
-                        city        => 'Chicago',
-                        date        => '04/08/2010',
-                        temperature => '46.2',
-                        humidity    => '20',
-                        description => 'Balmy',
-                    },
+                    stamp       => 20100408,
+                    city        => 'Chicago',
+                    date        => '04/08/2010',
+                    temperature => '46.2',
+                    humidity    => '20',
+                    description => 'Balmy',
                 },
             ],
             cb => sub {
@@ -123,49 +139,41 @@ test_redis {
             },
         );
 
-        $talisker->write(
+        $th->write(
             tag    => 'portland',
             points => [
                 {
-                    stamp => 20100405,
-                    value => encode_json {
-                        city        => 'Portland',
-                        date        => '04/05/2010',
-                        temperature => '70.1',
-                        humidity    => '20',
-                        description => 'Rainy',
-                    },
+                    stamp       => 20100405,
+                    city        => 'Portland',
+                    date        => '04/05/2010',
+                    temperature => '70.1',
+                    humidity    => '20',
+                    description => 'Rainy',
                 },
-                  {
-                    stamp => 20100406,
-                    value => encode_json {
-                        city        => 'Portland',
-                        date        => '04/06/2010',
-                        temperature => '72.3',
-                        humidity    => '30',
-                        description => 'Rainy',
-                    },
-                  },
-                  {
-                    stamp => 20100407,
-                    value => encode_json {
-                        city        => 'Portland',
-                        date        => '04/07/2010',
-                        temperature => '68.2',
-                        humidity    => '40',
-                        description => 'Sunny',
-                    },
-                  },
-                  {
-                    stamp => 20100408,
-                    value => encode_json {
-                        city        => 'Portland',
-                        date        => '04/10/2010',
-                        temperature => '66.2',
-                        humidity    => '20',
-                        description => 'Rainy',
-                    },
-                  },
+                {
+                    stamp       => 20100406,
+                    city        => 'Portland',
+                    date        => '04/06/2010',
+                    temperature => '72.3',
+                    humidity    => '30',
+                    description => 'Rainy',
+                },
+                {
+                    stamp       => 20100407,
+                    city        => 'Portland',
+                    date        => '04/07/2010',
+                    temperature => '68.2',
+                    humidity    => '40',
+                    description => 'Sunny',
+                },
+                {
+                    stamp       => 20100410,
+                    city        => 'Portland',
+                    date        => '04/10/2010',
+                    temperature => '66.2',
+                    humidity    => '20',
+                    description => 'Rainy',
+                },
             ],
             cb => sub {
                 my (undef, $err) = @_;
@@ -182,30 +190,11 @@ test_redis {
     {
 
         my $tcol = Talisker::Collection->new(
-            talisker => $talisker,
-            id       => 'cities',
-            indexes  => [
-                {
-                    field => 'city',
-                    sort  => 'alpha',
-                },
-                {
-                    field => 'temperature',
-                    sort  => 'numeric',
-                },
-                {
-                    field => 'humidity',
-                    sort  => 'numeric',
-                },
-                {
-                    field => 'description',
-                    sort  => 'alpha',
-                },
-            ],
+            id  => 'cities',
+            th  => $th,
         );
 
         my $cv = AE::cv;
-        my $err;
 
         $tcol->write(
             points => [
@@ -214,16 +203,12 @@ test_redis {
                 { tag => 'chicago',  stamp => 20100407 },
                 { tag => 'portland', stamp => 20100406 },
                 { tag => 'portland', stamp => 20100407 },
-                { tag => 'portland', stamp => 20100408 },
+                { tag => 'portland', stamp => 20100410 },
             ],
-            cb => sub {
-                (undef, $err) = @_;
-
-                $cv->send;
-            },
+            cb => sub { $cv->send(@_) },
         );
 
-        $cv->recv;
+        my (undef, $err) = $cv->recv;
 
         confess $err if $err;
 
@@ -235,8 +220,8 @@ test_redis {
         my $points = [];
 
         my $tcol = Talisker::Collection->new(
-            talisker => $talisker,
-            id       => 'cities',
+            id => 'cities',
+            th => $th,
         );
 
         $tcol->read(
@@ -270,8 +255,8 @@ test_redis {
         my $points = [];
 
         my $tcol = Talisker::Collection->new(
-            talisker => $talisker,
-            id      => 'cities',
+            id => 'cities',
+            th => $th,
         );
 
         $tcol->read(
@@ -305,8 +290,8 @@ test_redis {
         my $points = [];
 
         my $tcol = Talisker::Collection->new(
-            talisker => $talisker,
-            id       => 'cities',
+            id => 'cities',
+            th => $th,
         );
 
         $tcol->read(

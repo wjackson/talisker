@@ -5,6 +5,8 @@ use namespace::autoclean;
 use AnyEvent::Hiredis;
 use List::MoreUtils qw(pairwise);
 use Talisker::Util qw(merge_point chain);
+use Time::HiRes;
+use JSON;
 
 with 'Talisker::Backend::Role';
 
@@ -53,6 +55,14 @@ sub write {
             },
 
             sub {
+                $self->_update_mtime (
+                    tag    => $target,
+                    points => $points,
+                    cb     => $_[1],
+                );
+            },
+
+            sub {
                 $self->_update_collections(
                     tag    => $tag,
                     points => $points,
@@ -73,7 +83,7 @@ sub _write_tag_entry {
     my $cb  = $args{cb};
 
     $self->redis->command(
-        ['ZADD', 'tags', 0, $tag], $cb,
+        ['ZADD', ':tags', 0, $tag], $cb,
     );
 
     return;
@@ -114,7 +124,7 @@ sub _write_points {
     my $cb     = $args{cb};
 
     my @point_hset_args
-        = map { $_->{stamp}, $_->{value} }
+        = map { $_->{stamp} => encode_json($_) }
              @{ $points };
 
     $self->redis->command(
@@ -142,6 +152,20 @@ sub _write_stamps_index {
     return;
 }
 
+sub _update_mtime {
+    my ($self, %args) = @_;
+
+    my $tag = $args{tag};
+    my $cb  = $args{cb};
+
+    $self->redis->command(
+        ['HSET', "$tag:meta", 'mtime', Time::HiRes::time ], $cb
+    );
+
+    return;
+}
+
+# TODO: implement this
 sub _update_collections {
     my ($self, %args) = @_;
 
@@ -182,7 +206,7 @@ sub read {
     my $cb          = $args{cb};
 
     my $stamps;
-    my $values;
+    my $points;
     my $target;
 
     chain(
@@ -197,7 +221,7 @@ sub read {
                 ),
             },
 
-            # resolve the tag incase it's a link
+            # resolve the tag in case it's a link
             sub {
                 my (undef, $cb) = @_;
                 $self->_resolve_target(
@@ -217,24 +241,22 @@ sub read {
                 ),
             },
 
-            # read the values by stamp
+            # read the points by stamp
             sub {
                 my (undef, $cb) = @_;
-                $self->_read_values(
+                $self->_read_points(
                     tag    => $target,
                     stamps => $stamps,
-                    cb     => sub { $values = shift; $cb->() },
+                    cb     => sub { $points = shift; $cb->() },
                 ),
             },
         ],
 
         # make the time series and return it
         finished => sub {
-            my @pts = pairwise { { stamp => $a, value => $b } } @$stamps, @$values;
-
             $cb->({
                 tag    => $target,
-                points => \@pts,
+                points => $points,
             });
         },
 
@@ -258,7 +280,7 @@ sub _read_stamps {
     return;
 }
 
-sub _read_values {
+sub _read_points {
     my ($self, %args) = @_;
 
     my $tag    = $args{tag};
@@ -266,7 +288,15 @@ sub _read_values {
     my $cb     = $args{cb};
 
     $self->redis->command(
-        ['HMGET', $tag, @{ $stamps } ], $cb,
+        ['HMGET', $tag, @{ $stamps } ], sub {
+            my ($values, $err) = @_;
+
+            return $cb->(undef, $err) if $err;
+
+            my @pts = map { decode_json($_) } @{ $values };
+
+            return $cb->(\@pts);
+        },
     );
 
     return;
@@ -279,7 +309,7 @@ sub _exists {
     my $cb  = $args{cb};
 
     $self->redis->command(
-        ['ZRANK', 'tags', $tag],
+        ['ZRANK', ':tags', $tag],
         sub {
             my ($rank, $err) = @_;
             return $cb->(defined $rank);
@@ -361,7 +391,7 @@ sub _delete_ts {
 
     $cmds_run++;
     $redis->command(
-        ['ZREM', 'tags', $tag ],
+        ['ZREM', ':tags', $tag ],
         sub { $ts_deleted_cb->(@_) },
     );
 
@@ -390,42 +420,6 @@ sub _delete_ts {
         return $cb->(undef, $err) if $err;
         return $cb->()            if $cmds_run == $cmds_ret;
     };
-
-    return;
-}
-
-sub tags {
-    my ($self, %args) = @_;
-
-    my $start_idx = $args{start_idx} // 0;
-    my $end_idx   = $args{end_idx}   // -1;
-    my $cb        = $args{cb};
-
-    $self->redis->command(
-        ['ZRANGE', 'tags', $start_idx, $end_idx], sub {
-            my ($tags, $err) = @_;
-
-            return $cb->(undef, $err) if $err;
-            return $cb->($tags);
-        },
-    );
-
-    return;
-}
-
-sub count {
-    my ($self, %args) = @_;
-
-    my $cb = $args{cb};
-
-    $self->redis->command(
-        ['ZCARD', 'tags'], sub {
-            my ($count, $err) = @_;
-
-            return $cb->(undef, $err) if $err;
-            return $cb->($count);
-        },
-    );
 
     return;
 }

@@ -17,15 +17,15 @@ has port => (
     default => 6379,
 );
 
-has db => (
+has default_db => (
     is      => 'ro',
     isa     => RedisDatabaseNumber,
     default => 1,
 );
 
 has redis => (
-    is => 'ro',
-    isa => 'AnyEvent::Hiredis',
+    is         => 'ro',
+    isa        => 'AnyEvent::Hiredis',
     lazy_build => 1,
 );
 
@@ -38,7 +38,7 @@ sub _build_redis {
     );
 
     # this can't fail (maybe)
-    $redis->command(['SELECT', $self->db], sub {});
+    $redis->command(['SELECT', $self->default_db], sub {});
 
     return $redis;
 }
