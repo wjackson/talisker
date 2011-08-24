@@ -45,6 +45,6 @@ sub rewrite_redis_conf {
     }
 }
 
-END { unlink $_ for "t/redis.conf", "t/dump.rdb" }
+END { unlink $_ for "$Bin/redis.conf", "$Bin/dump.rdb" }
 
 1;
