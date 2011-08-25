@@ -6,7 +6,6 @@ use Carp;
 
 use t::Redis;
 use Talisker;
-use Talisker::Admin;
 use ok 'Talisker::Collection';
 
 my $all_selected = [
@@ -64,13 +63,12 @@ my $all_selected = [
 test_redis {
     my $port = shift // 6379;
 
-    my $tadmin = Talisker::Admin->new(port => $port);
-    my $talisker;
+    my $talisker = Talisker->new(port => $port);
 
     {
         my $cv = AE::cv;
 
-        $tadmin->initialize(
+        $talisker->write_fields(
             fields => [
                 { name => 'city',        sort => 'alpha'   },
                 { name => 'temperature', sort => 'numeric' },
@@ -83,8 +81,6 @@ test_redis {
         my (undef, $err) = $cv->recv;
 
         confess $err if $err;
-
-        $talisker = Talisker->new(port => $port);
     }
 
     { # setup the talisker db

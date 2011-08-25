@@ -58,8 +58,21 @@ sub read_fields {
 
         $cb->(undef, $err) if $err;
 
+        # default to having a single field called value
+        return $cb->([ { name => 'value', sort => 'numeric' } ])
+            if !defined $fields_json;
+
         return $cb->(decode_json($fields_json));
     });
+}
+
+sub write_fields {
+    my ($self, %args) = @_;
+
+    my $fields = $args{fields};
+    my $cb     = $args{cb};
+
+    $self->redis->command(['SET', ':fields', encode_json($fields)], $cb);
 }
 
 sub link {

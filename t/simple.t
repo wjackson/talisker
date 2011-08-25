@@ -5,30 +5,11 @@ use AnyEvent;
 
 use t::Redis;
 use ok 'Talisker';
-use ok 'Talisker::Admin';
 
 test_redis {
     my $port = shift;
-    my $tadmin = Talisker::Admin->new(port => $port);
-    my $talisker;
-    isa_ok $tadmin, 'Talisker::Admin';
-
-    { # make a new talisker db
-        my $cv = AE::cv;
-
-        $tadmin->initialize(
-            fields => [
-                { name => 'value' },
-            ],
-            cb => sub { $cv->send(@_) },
-        );
-
-        my (undef, $err) = $cv->recv;
-
-        confess $err if $err;
-
-        $talisker = Talisker->new(port => $port);
-    }
+    my $talisker = Talisker->new(port => $port);
+    isa_ok $talisker, 'Talisker';
 
     { # write a time series to the db
         my $t1 = Time::HiRes::time;

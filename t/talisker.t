@@ -4,7 +4,6 @@ use Test::More;
 use AnyEvent;
 use Carp qw(confess);
 use Talisker::Util qw(chain);
-use Talisker::Admin;
 use Time::HiRes;
 
 use t::Redis;
@@ -13,13 +12,13 @@ use ok 'Talisker';
 test_redis {
 
     my $port = shift // 6379;
-    my $talisker = Talisker::Admin->new(port => $port);
+    my $talisker = Talisker->new(port => $port);
 
-    isa_ok $talisker, 'Talisker::Admin';
+    isa_ok $talisker, 'Talisker';
 
     my $cv = AE::cv;
 
-    $talisker->initialize(
+    $talisker->write_fields(
         db     => 7,
         fields => [
             { name => 'value' },

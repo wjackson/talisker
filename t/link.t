@@ -4,14 +4,12 @@ use Test::More;
 use AnyEvent;
 use Carp qw(confess);
 use Talisker::Util qw(chain);
-use Talisker::Admin;
 
 use t::Redis;
 use ok 'Talisker';
 
 test_redis {
     my $port = shift // 6379;
-    my $tadmin   = Talisker::Admin->new(port => $port);
     my $talisker = Talisker->new(port => $port);
 
     isa_ok $talisker, 'Talisker';
@@ -29,18 +27,6 @@ test_redis {
 
     chain(
         steps => [
-
-            # make talisker db
-            sub {
-                my (undef, $cb) = @_;
-
-                $tadmin->initialize(
-                    fields => [
-                        { name => 'value' },
-                    ],
-                    cb => $cb
-                );
-            },
 
             # write time series
             sub {
