@@ -3,47 +3,35 @@ package Talisker;
 
 use Moose;
 use namespace::autoclean;
-use Talisker::Handle;
+use Talisker::Types qw(RedisDatabaseNumber BackendType);
+use JSON;
 
 with 'Talisker::RedisRole';
 
-# create a talisker db and return a handle
-sub create {
-    my ($self, %args) = @_;
+has backend_type => (
+    is      => 'ro',
+    isa     => BackendType,
+    default => 'Simple',
+);
 
-    my $db     = $args{db};
-    my $fields = $args{fields};
-    my $cb     = $args{cb};
+has backend => (
+    accessor   => 'backend',
+    does       => 'Talisker::Backend::Role',
+    lazy_build => 1,
+    handles    => [ qw(read write delete compact tags count ts_meta link
+                       resolve_link count read_fields write_fields exists) ],
+);
 
-    my $t_handle = $self->handle(redis => $self->redis, db => $db);
+sub _build_backend {
+    my ($self) = @_;
 
-    # write out fields
-    $t_handle->write_fields(
-        fields => $fields,
-        cb     => sub {
-            my (undef, $err) = @_;
+    my $backend_class = 'Talisker::Backend::' . $self->backend_type;
+    Class::MOP::load_class($backend_class);
 
-            return $cb->(undef, $err) if $err;
-
-            $cb->($t_handle);
-        },
-    );
-
-    return;
+    return $backend_class->new(redis => $self->redis);
 }
 
-# do we really want to block here?
-sub handle {
-    my ($self, %args) = @_;
-
-    my $db = $args{db} // $self->default_db;
-
-    return Talisker::Handle->new(redis => $self->redis, db => $db);
-}
-
-sub delete {
-    # TODO: delete a db
-}
+# TODO: verify that the db has been initialized before using it
 
 __PACKAGE__->meta->make_immutable;
 1;

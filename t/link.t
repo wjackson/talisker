@@ -4,12 +4,14 @@ use Test::More;
 use AnyEvent;
 use Carp qw(confess);
 use Talisker::Util qw(chain);
+use Talisker::Admin;
 
 use t::Redis;
 use ok 'Talisker';
 
 test_redis {
     my $port = shift // 6379;
+    my $tadmin   = Talisker::Admin->new(port => $port);
     my $talisker = Talisker->new(port => $port);
 
     isa_ok $talisker, 'Talisker';
@@ -23,7 +25,6 @@ test_redis {
         ],
     };
 
-    my $th;
     my $cv = AE::cv;
 
     chain(
@@ -33,23 +34,17 @@ test_redis {
             sub {
                 my (undef, $cb) = @_;
 
-                $th = $talisker->create(
+                $tadmin->initialize(
                     fields => [
                         { name => 'value' },
                     ],
-                    cb => sub {
-                        $th = shift;
-                        my $err = shift;
-
-                        return $cb->(undef, $err) if $err;
-                        return $cb->();
-                    },
+                    cb => $cb
                 );
             },
 
             # write time series
             sub {
-                $th->write(
+                $talisker->write(
                     %{ $TS },
                     cb => $_[1],
                 );
@@ -57,7 +52,7 @@ test_redis {
 
             # link
             sub {
-                $th->link(
+                $talisker->link(
                     tag    => 'LinkToGRR',
                     target => 'GRR',
                     cb     => $_[1],
@@ -67,7 +62,7 @@ test_redis {
             # resolve
             sub {
                 my (undef, $cb) = @_;
-                $th->resolve_link(
+                $talisker->resolve_link(
                     tag => 'LinkToGRR',
                     cb  => sub {
                         my ($target, $err) = @_;
@@ -84,7 +79,7 @@ test_redis {
             # read from link
             sub {
                 my (undef, $cb) = @_;
-                $th->read(
+                $talisker->read(
                     tag => 'LinkToGRR',
                     cb  => sub {
                         my ($ts, $err) = @_;
@@ -100,7 +95,7 @@ test_redis {
 
             # write to link
             sub {
-                $th->write(
+                $talisker->write(
                     tag => 'LinkToGRR',
                     points => [
                         { stamp => 20100408, value => 1.4 },
@@ -112,7 +107,7 @@ test_redis {
             # read
             sub {
                 my (undef, $cb) = @_;
-                $th->read(
+                $talisker->read(
                     tag => 'GRR',
                     cb  => sub {
                         my ($ts, $err) = @_;

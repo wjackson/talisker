@@ -5,35 +5,36 @@ use AnyEvent;
 
 use t::Redis;
 use ok 'Talisker';
+use ok 'Talisker::Admin';
 
 test_redis {
     my $port = shift;
-    my $talisker = Talisker->new(port => $port);
-    isa_ok $talisker, 'Talisker';
+    my $tadmin = Talisker::Admin->new(port => $port);
+    my $talisker;
+    isa_ok $tadmin, 'Talisker::Admin';
 
     { # make a new talisker db
         my $cv = AE::cv;
 
-        $talisker->create(
+        $tadmin->initialize(
             fields => [
                 { name => 'value' },
             ],
             cb => sub { $cv->send(@_) },
         );
 
-        my ($t_handle, $err) = $cv->recv;
+        my (undef, $err) = $cv->recv;
 
         confess $err if $err;
 
-        isa_ok $t_handle, 'Talisker::Handle';
+        $talisker = Talisker->new(port => $port);
     }
 
     { # write a time series to the db
-        my $th = $talisker->handle;
         my $t1 = Time::HiRes::time;
 
         my $cv = AE::cv;
-        $th->write(
+        $talisker->write(
             tag    => 'GRR',
             points => [
                 { stamp  => 20100405, value => 1.1  },
@@ -45,7 +46,7 @@ test_redis {
         $cv->recv;
 
         $cv = AE::cv;
-        $th->ts_meta( tag => 'GRR', cb  => sub { $cv->send(@_) });
+        $talisker->ts_meta( tag => 'GRR', cb  => sub { $cv->send(@_) });
         my ($ts_meta, $err) = $cv->recv;
 
         confess $err if $err;
@@ -56,11 +57,9 @@ test_redis {
     }
 
     { # read tags
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
 
-        $th->tags(cb => sub { $cv->send(@_) });
+        $talisker->tags(cb => sub { $cv->send(@_) });
         my ($tags, $err) = $cv->recv;
 
         confess $err if $err;
@@ -69,10 +68,8 @@ test_redis {
     }
 
     { # read written time series
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag => 'GRR',
             cb  => sub { $cv->send(@_) },
         );
@@ -95,10 +92,8 @@ test_redis {
     }
 
     { # read with stamp range
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag         => 'GRR',
             start_stamp => 20100405,
             end_stamp   => 20100405,
@@ -121,10 +116,8 @@ test_redis {
     }
 
     { # read with as_of
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag   => 'GRR',
             as_of => 1234567891,
             cb    => sub { $cv->send(@_) },
@@ -148,10 +141,8 @@ test_redis {
     }
 
     { # read with as_of again
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag   => 'GRR',
             as_of => 1234567889,
             cb    => sub { $cv->send(@_) },
@@ -175,10 +166,8 @@ test_redis {
     }
 
     { # delete point
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->delete(
+        $talisker->delete(
             tag    => 'GRR',
             stamps => [ 20100405 ],
             cb     => sub { $cv->send(@_) },
@@ -189,10 +178,8 @@ test_redis {
     }
 
     { # verify point delete
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag => 'GRR',
             cb  => sub { $cv->send(@_) },
         );
@@ -214,10 +201,8 @@ test_redis {
     }
 
     { # count the time series
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->count(
+        $talisker->count(
             cb => sub { $cv->send(@_) },
         );
         my ($count, $err) = $cv->recv;
@@ -228,10 +213,8 @@ test_redis {
     }
 
     { # delete time series
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->delete(
+        $talisker->delete(
             tag => 'GRR',
             cb  => sub { $cv->send(@_) },
         );
@@ -242,10 +225,8 @@ test_redis {
     }
 
     { # verify time series delete
-        my $th = $talisker->handle;
-
         my $cv = AE::cv;
-        $th->read(
+        $talisker->read(
             tag => 'GRR',
             cb  => sub { $cv->send(@_) },
         );

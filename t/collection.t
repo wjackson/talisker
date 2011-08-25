@@ -6,6 +6,7 @@ use Carp;
 
 use t::Redis;
 use Talisker;
+use Talisker::Admin;
 use ok 'Talisker::Collection';
 
 my $all_selected = [
@@ -63,13 +64,13 @@ my $all_selected = [
 test_redis {
     my $port = shift // 6379;
 
-    my $talisker = Talisker->new(port => $port);
-    my $th;
+    my $tadmin = Talisker::Admin->new(port => $port);
+    my $talisker;
 
     {
         my $cv = AE::cv;
 
-        $talisker->create(
+        $tadmin->initialize(
             fields => [
                 { name => 'city',        sort => 'alpha'   },
                 { name => 'temperature', sort => 'numeric' },
@@ -79,12 +80,11 @@ test_redis {
             cb => sub { $cv->send(@_) },
         );
 
-        my $err;
-        ($th, $err) = $cv->recv;
+        my (undef, $err) = $cv->recv;
 
         confess $err if $err;
 
-        isa_ok $th, 'Talisker::Handle';
+        $talisker = Talisker->new(port => $port);
     }
 
     { # setup the talisker db
@@ -94,7 +94,7 @@ test_redis {
         my $cmds_ret = 0;
 
         $cmds_run++;
-        $th->write(
+        $talisker->write(
             tag    => 'chicago',
             points => [
                 {
@@ -139,7 +139,7 @@ test_redis {
             },
         );
 
-        $th->write(
+        $talisker->write(
             tag    => 'portland',
             points => [
                 {
@@ -191,7 +191,7 @@ test_redis {
 
         my $tcol = Talisker::Collection->new(
             id  => 'cities',
-            th  => $th,
+            talisker  => $talisker,
         );
 
         my $cv = AE::cv;
@@ -221,7 +221,7 @@ test_redis {
 
         my $tcol = Talisker::Collection->new(
             id => 'cities',
-            th => $th,
+            talisker => $talisker,
         );
 
         $tcol->read(
@@ -256,7 +256,7 @@ test_redis {
 
         my $tcol = Talisker::Collection->new(
             id => 'cities',
-            th => $th,
+            talisker => $talisker,
         );
 
         $tcol->read(
@@ -291,7 +291,7 @@ test_redis {
 
         my $tcol = Talisker::Collection->new(
             id => 'cities',
-            th => $th,
+            talisker => $talisker,
         );
 
         $tcol->read(

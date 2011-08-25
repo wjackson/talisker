@@ -11,9 +11,9 @@ has id => (
     required => 1,
 );
 
-has th => (
-    accessor => 'th',
-    isa      => 'Talisker::Handle',
+has talisker => (
+    accessor => 'talisker',
+    isa      => 'Talisker',
     required => 1,
     handles  => [ 'redis' ],
 );
@@ -73,7 +73,7 @@ sub _write_points {
 
             # read fields
             sub {
-                $self->th->read_fields(
+                $self->talisker->read_fields(
                     cb => $_[1],
                 );
             },
@@ -121,7 +121,7 @@ sub _write_pt {
             sub {
                 my (undef, $cb) = @_;
 
-                $self->th->read(
+                $self->talisker->read(
                     tag         => $pt->{tag},
                     start_stamp => $pt->{stamp},
                     end_stamp   => $pt->{stamp},
@@ -198,7 +198,7 @@ sub read {
     my $stop_idx  = $args{stop_idx}  // -1;
     my $cb        = $args{cb};
 
-    my $th        = $self->th;
+    my $talisker  = $self->talisker;
     my $redis     = $self->redis;
     my $id        = $self->id;
 
@@ -218,7 +218,7 @@ sub read {
                 my $stamp = pop @pt_id;
                 my $tag   = join ':', @pt_id;
 
-                $th->read(
+                $talisker->read(
                     tag         => $tag,
                     start_stamp => $stamp,
                     end_stamp   => $stamp,

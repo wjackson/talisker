@@ -12,7 +12,6 @@ has redis => (
     required => 1,
 );
 
-
 sub tags {
     my ($self, %args) = @_;
 
@@ -47,15 +46,6 @@ sub count {
     );
 
     return;
-}
-
-sub write_fields {
-    my ($self, %args) = @_;
-
-    my $fields = $args{fields};
-    my $cb     = $args{cb};
-
-    $self->redis->command(['SET', ':fields', encode_json($fields)], $cb);
 }
 
 sub read_fields {
