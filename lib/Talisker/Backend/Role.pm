@@ -31,6 +31,17 @@ sub tags {
     return;
 }
 
+sub point_count {
+    my ($self, %args) = @_;
+
+    my $cb  = $args{cb};
+    my $tag = $args{tag};
+
+    $self->redis->command(
+        ['ZCARD', "$tag:stamps"], $cb
+    );
+}
+
 sub count {
     my ($self, %args) = @_;
 
